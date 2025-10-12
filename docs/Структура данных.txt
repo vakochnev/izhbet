@@ -1,0 +1,128 @@
+Пример. Описание предметной области - https://poisk-ru.ru/s32876t6.html
+
+Напиши программу по следующим данным:
+Пользовательские истроии
+1. Я как прогнозист, хочу получать информацию с интернет сайта о предстоящих и прошедших спортивных событиях событиях.
+2. Я как каппер, хочу хранит данные о спортивных событиях, что бы использовать информацию для построение и тестирование системы прогнозов.
+3. Я как аналитик, хочу просчитывать различные стратегии, что бы строить прогнозы на каждый матч на предстоящий игровой день.
+4. Я как специалист по анализу данных, хочу строить прогноз с использование нейронные сети для прогнозирование исхода матча.
+5. Я как специалист по анализу данных, хочу выполнять анализ и отбор данны по расчитынным стратегиям, что бы иметь качественный высокодоходный прогноз.
+6. Я как аналитик спортивных событий, хочу иметь расширенную итоговыю статистику на основание прогнозов, что бы иметь возможность отобрать маловероятные прогнозы.
+7. Я как каппер, хочу выкладывать в социальные сети итоги прогнозов за прошедший день и прогнозы на текущий день, что бы привлекать новых пользователей.
+
+Разделение функционала по пакетам (модулем):
+1. Сбор данных и парсинг с сайти (или из файла).
+2. Сохранение/получение с сайта данных в/из БД.
+3. Расчет матча по алгоритмам и сохранение их в БД.
+4. Сохранение/получение рассчетных данных в/из БД.
+5. Построение модели на основе глубокой нейронной сети
+4. Сохранение/получение данных модели в/из БД.
+6. Прогнозирование итогов предстоящего матча
+7. Сохранение/получение прогнозных данных в/из БД.
+8. Фильтрация прогнозов и отбор самых значимых
+
+Функциональное описание:
+1. Запрашиваем с сайта "https://stat-api.baltbet.ru/" с помощью API информацию о прошедших играх по "https://stat-api.baltbet.ru/api/seasons/<id-matchs>/matches" возвращаеться следующий JSON
+Информация о голах:
+[{'seconds': 840, 'scorer': 'W.Wright', 'team': 'home'}, ...]
+Информация о матчах:
+ [{'id': 31386086, 'sId': 1, 'catId': 1, 'tId': 25, 'stId': 84, 'snId': 92562, 'stadiumId': 2372,
+        'round': {'id': 1, 'type': 'tableround'}, 'isCanceled': False, 'invalid': False,
+        'result': {'period': 'nt', 'home': 3, 'away': 0, 'winner': 'home'},
+        'goals':
+            [{'seconds': 1440, 'scorer': 'J.Nolan', 'team': 'home'},
+            {'seconds': 4800, 'scorer': 'S.Whalley', 'team': 'home'},
+            {'seconds': 5400, 'scorer': 'K.Adedoyin', 'team': 'home'}],
+        'comment': '1:0 (24.) J.Nolan, 2:0 (80.) S.Whalley, 3:0 (90.) K.Adedoyin',
+        'periods':
+            [{'period': 'p1', 'home': 1, 'away': 0},
+            {'period': 'ft', 'home': 3, 'away': 0}],
+        'time': 1691244000, 'homeId': 187, 'awayId': 79},
+    {'id': 31386090, 'sId': 1, 'catId': 1, 'tId': 25, 'stId': 84, 'snId': 92562, 'stadiumId': 2213,
+        'round': {'id': 1, 'type': 'tableround'},
+        'isCanceled': False,
+        'invalid': False,
+        'result': {'period': 'nt', 'home': 1, 'away': 0, 'winner': 'home'},
+        'goals':
+            [{'seconds': 840, 'scorer': 'W.Wright', 'team': 'home'}],
+        'comment': '1:0 (14.) W.Wright',
+        'periods':
+            [{'period': 'p1', 'home': 1, 'away': 0},
+            {'period': 'ft', 'home': 1, 'away': 0}],
+        'time': 1691244000, 'homeId': 4875, 'awayId': 22},
+    ]
+Информация о периодах или таймах:
+    [{'period': 'p1', 'home': 1, 'away': 0}, {'period': 'ft', 'home': 1, 'away': 0}]
+Информация о участующих командах в чемпионате:
+    [
+        {'id': 187, 'sId': 1, 'catId': 1, 'name': 'Аккрингтон Стэнли', 'shortName': 'АКК', 'gender': 'm',
+            'jerseyHome': {'type': 'short_sleeves', 'base': 'ff0000', 'number': 'ffffff', 'sleeve': 'ffffff',
+            'sleeveLong': 'ff0000'},
+            'jerseyAway': {'type': 'short_sleeves', 'base': 'ffffff', 'number': '000000', 'sleeve': 'ffffff'},
+            'jerseyGK': {'type': 'short_sleeves', 'base': '66cc00', 'number': '000000', 'sleeve': '66cc00'},
+            'stadiumId': 2372, 'isVirtual': False},
+        {'id': 79, 'sId': 1, 'catId': 1, 'name': 'Ньюпорт Каунти', 'shortName': 'НЬЮ', 'gender': 'm',
+            'jerseyHome': {'type': 'short_sleeves', 'base': 'fdc100', 'number': '000000', 'sleeve': '000000',
+            'sleeveLong': '000000'},
+            'jerseyAway': {'type': 'short_sleeves', 'base': 'ffffff', 'number': '000000', 'sleeve': '000000',
+            'sleeveLong': 'ffffff'},
+            'jerseyGK': {'type': 'short_sleeves', 'base': '3c8b5a', 'number': 'ff0000', 'sleeve': '3c8b5a',
+            'sleeveLong': '3c8b5a'},
+            'stadiumId': 10085, 'isVirtual': False
+        },
+        {'id': 4875, 'sId': 1, 'catId': 1, 'name': 'Кроли Таун', 'shortName': 'КРО', 'gender': 'm',
+            'jerseyHome': {'type': 'short_sleeves', 'base': 'ff0000', 'number': 'ffffff', 'sleeve': 'ff0000',
+            'sleeveLong': 'ff0000'},
+            'jerseyAway': {'type': 'short_sleeves', 'base': '9be0f9', 'number': 'ffffff', 'sleeve': '1a202b',
+            'sleeveLong': '9be0f9'},
+            'jerseyGK': {'type': 'short_sleeves', 'base': '000000', 'number': 'ffffff', 'sleeve': '000000'},
+            'stadiumId': 2213, 'isVirtual': False
+        },
+    ]
+лиги составляющие чепмпионат: "https://stat-api.baltbet.ru/api/categories" возвращаеться следующий JSON
+[
+    {'id': 1, 'sId': 1, 'name': 'Англия', 'countryCode': 'ENG'},
+    {'id': 39, 'sId': 4, 'name': 'Швеция', 'countryCode': 'SWE'}
+]
+ 
+видов спорта, страны чемпионтах участвующих в чемпионатах: "https://stat-api.baltbet.ru/api/sports/<id-sports>/tournaments" возвращает JSON в котором есть
+информация о турнире е текущем сезоне:
+    [
+        {'id': 91180, 'sId': 1, 'tId': 25, 'stages': [84, 1187], 'shortName': 'LT 22/23', 'name': 'Вторая Лига 22/23',
+        'year': '22/23', 'start': 1659139200, 'end': 1685318399},
+        {'id': 92562, 'sId': 1, 'tId': 25, 'stages': [84], 'shortName': 'LT 23/24', 'name': 'Вторая Лига 23/24',
+        'year': '23/24', 'start': 1691107200, 'end': 1716163199},
+        {'id': 78213, 'sId': 1, 'tId': 173, 'stages': [72, 6013], 'shortName': 'NL 20/21',
+        'name': 'Национальная Лига 20/21', 'year': '20/21', 'start': 1601683200, 'end': 1624233599},
+        {'id': 91233, 'sId': 1, 'tId': 173, 'stages': [72, 6013], 'shortName': 'NL 22/23',
+        'name': 'Национальная Лига 22/23', 'year': '22/23', 'start': 1659744000, 'end': 1684022399},
+        {'id': 92651, 'sId': 1, 'tId': 173, 'stages': [72], 'shortName': 'NL 23/24', 'name': 'Национальная Лига 23/24',
+        'year': '23/24', 'start': 1691193600, 'end': 1715644799},
+        {'id': 77825, 'sId': 1, 'tId': 24, 'stages': [3, 1186], 'shortName': 'LO 20/21', 'name': 'Первая Лига 20/21',
+        'year': '20/21', 'start': 1599868800, 'end': 1622505599},
+        {'id': 41268, 'sId': 1, 'tId': 24, 'stages': [3, 1186], 'shortName': 'LO 17/18', 'name': 'Первая Лига 17/18',
+        'year': '17/18', 'start': 1501891200, 'end': 1528156799},
+    ]
+информация о видах спорта:
+[
+    {'id': 1, 'name': 'Футбол', 'isActive': True},
+    {'id': 4, 'name': 'Хоккей', 'isActive': True}
+]
+список самих чемпионатов: "https://stat-api.baltbet.ru/api/tournaments/%s/seasons" возвращает JSON     
+[
+    {'id': 25, 'sId': 1, 'catId': 1, 'curSeason': 92562, 'name': '2-я Лига', 'isTop': False, 'priority': 242}
+    {'id': 17, 'sId': 1, 'catId': 1, 'curSeason': 92531, 'name': 'Премьер-Лига', 'isTop': True, 'priority': 6},
+    {'id': 18, 'sId': 1, 'catId': 1, 'curSeason': 92564, 'name': 'Чемпионшип', 'isTop': True, 'priority': 7},
+    {'id': 35, 'sId': 1, 'catId': 30, 'curSeason': 92638, 'name': 'Бундеслига', 'isTop': True, 'priority': 9},
+    {'id': 8, 'sId': 1, 'catId': 32, 'curSeason': 92561, 'name': 'Ла Лига', 'isTop': True, 'priority': 11},
+    {'id': 54, 'sId': 1, 'catId': 32, 'curSeason': 92615, 'name': 'Ла Лига 2', 'isTop': False, 'priority': 12},
+]
+Получи данные необходимо разобрать полученные данные и сохранить в моделях: BaseModel, ChampionShip, Country, Goal, Match, Period, Sport, Team, Tournament
+   
+
+
+
+   Сохраняем полученые данные в таблицы.
+2. Выбираем вид спорта и список турниров(чемпионатов) по годам начиная с самого старого.
+   Собираем данные по команде за весь промежуток времяни
+

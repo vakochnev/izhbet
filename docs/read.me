@@ -1,0 +1,43 @@
+Для запуска необхимо установить 
+
+pip3 install sqlalchemy
+pip3 install mysql-connect
+pip3 install flask-mysql (ставиться драйвер)
+
+Описание alembic: 
+
+    https://konstantinklepikov.github.io/myknowlegebase/notes/alembic.html?ysclid=l9ac0roaj116820058
+    https://alembic.sqlalchemy.org/en/latest/tutorial.html#create-a-migration-script
+    https://alembic.sqlalchemy.org/en/latest/front.html#installation
+    https://habr.com/ru/company/yandex/blog/511892/?
+
+sudo apt install alembic
+pip3 install alembic
+
+Не запускать повторно, после установки
+alembic init alembic (куда будет ставиться вся что связано с миграцией)
+alembic init migration установка папки миграции
+alembic revision --autogenerate -m 'initial' на пустой БД и созданной моделью
+alembic upgrade head запуск миграции
+
+virtualenv env
+source env/bin/activate
+
+Очистка системы...
+Удаляем таблицу
+    запускаем EMMA, в ней удаляем
+Удаляем версии миграции каталог version не удаляем
+    в каталоге MIGRATION/versions удаляем скрипт миграции
+Cоздаем таблицу из консоли через mysql
+
+    mysql -u root -p
+
+    mysql> create database izhbet CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    mysql> set global explicit_defaults_for_timestamp = ON;
+    mysql> SET GLOBAL FOREIGN_KEY_CHECKS = 0;
+
+    mysql> GRANT ALL PRIVILEGES ON db.* TO another_user@'localhost';
+
+Запускаем создание миграции
+    alembic revision --autogenerate -m 'initial'
+    alembic upgrade head

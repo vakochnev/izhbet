@@ -1,0 +1,87 @@
+#'https://api.sportradar.us/soccer/trial/v4/en/seasons/sr:season:77453/schedules.json?api_key=qcgpq3fjksqavpwwu2kfhq7g'		https://github.com/astazewska/sportradarAPIproblem/blob/main/src/App.js
+# https://qaa-engineer.ru/est-sposob-poluchit-koefficzienty-i-spisok-sportivnyh-matchej-esli-est-to-kakoj/ Полуяение коэффициентов из разных источников
+===
+
+https://stat-api.baltbet.ru/api/seasons/92594
+https://stat-api.baltbet.ru/api/seasons/92594/matches
+https://stat-api.baltbet.ru/api/seasons/92594/league-tables
+https://stat-api.baltbet.ru/api/seasons/92594/matches-statistic-tables
+https://stat-api.baltbet.ru/api/seasons/91175/teams/2338/players-statistics
+https://stat-api.baltbet.ru/api/tournaments/203/seasons
+https://stat-api.baltbet.ru/api/matches/31391737
+https://stat-api.baltbet.ru/api/coefs/31391737
+https://stat-api.baltbet.ru/api/matches/31391737/statistic-cards?calcType=0
+
+===
+
+https://stat-api.baltbet.ru/api/seasons/42720/matches-statistic-tables - [числа id лиги] Статистика матче
+https://stat-api.baltbet.ru/api/seasons/92594/league-tables - [числа id лиги] 
+https://stat-api.baltbet.ru/api/tournaments/top - Виды спорта
+
+countrys => https://stat-api.baltbet.ru/api/sports/1/tournaments
+sports => https://stat-api.baltbet.ru/api/categories - Виды спорта и стран
+    {"0": 
+        {"sport": {"id": 1, "name": "Футбол"}}
+        {"categories": {"0": {"id": 1, "sId": 1, "name": "Англия", "countryCode": "ENG"}}}
+                       {"3": {"id": 7, "sId": 1, "name": "Франция", "countryCode": "FRA"}}}
+    }
+    {"1":
+        {"sport": {"id": 5, "name": "Тенис"}}
+        {"categories": {"0": {"id": 3, "sId": 5, "name": "АТП"}}}
+                       {"3": {"id": 76, "sId": 5, "name": "Кубок Девиса"}}}
+    }
+
+https://stat-api.baltbet.ru/api/tournaments/203/seasons - Все игры по чемпионату (пример): Российская премьер лига - футбол 
+    {"0": {"id": 77389, "sId": 1, "tId": 203, "stages":{"0": 53}, "shortName": "PL 20/21", "name": "Примьер-лига 20/21", "year": "20/21", "start": 1596844800, "end": 1621814399}
+    "20": {"id": 92594, "sId": 1, "tId": 203, "stages": {"0": 53}, "shortName": "PL 23/24", "name": "Премьер-лига 23/24", "year": "23/24", "start": 1689897600, "end": 1718063999}
+    }
+
+https://stat-api.baltbet.ru/api/seasons/92594 - Все о РПЛ ("curSeason": 92594 - текущая ID лиги)
+    {"sport: {"id": 1, "name": "Футбол", "isActive": true},
+    "category: {"id": 21, "sId": 1, "name": "Россия", "countryCode": "RUS"},
+    "tournament": {"id": 203, "sId": 1, "catId": 21, "curSeason": 92594, "name": "Премьер Лига", "isTop": true, "priority": 16},
+    "season": {"id": 92594, "sId": 1, "tId": 203, "stages": {"0": 53}, "shortName": "PL 23/24", "name": "Премьер-лига 23/24", "year": "23/24", "start": 1689897600, "end": 1718063999},
+    "stages": {"0": {"id": 53, "sId": 1, "catId": 21, "tId": 203, "name": "Российская Премьер-Лига", "stageTypeName": "Regular Season", "hasRounds": true, "isCup": false}},
+
+https://stat-api.baltbet.ru/api/seasons/92594/matches - матчи текущей лиги РПЛ ("curSeason": 92594 - текущая ID лиги)
+    {"tournaments":
+        {"0": {"id": 203, "sId": 1, "catId": 21, "curSeason": 92594, "name": "Премьер Лига", "isTop": true, "priority": 16}}
+    "tournamentStages":
+        {"0": {"id": 53, "sId": 1, "catId": 21, "tId": 203, "name": "Российская Премьер-Лига", "stageTypeName": "Regular Season", "hasRounds": true, "isCup": false)}}
+    "rounds": […]
+    "teams": {"0": {"id": 2338, "sId": 1, "catId": 21, "founded": "1997", "name": "Химки", "shortName": "ХИМ", "gender": "m", "jerseyHome": {…}, "jerseyAway": {…}, "jerseyGK": {…}, "stadiumId": 1288, "isVirtual": false},
+    "stadiums": […], 
+    "matches": {"0": {"id": 22906327, "sId": 1, "catId": 21, "tId": 203, "stId": 53, "snId": 77389, "stadiumId": 1288, 
+                        "round": {"id": 1, "type": "tableround", "isCanceled": false, "invalid": false}, 
+                        "result": {"period": "nt", "home": 0, "away": 2, "winner": "away"}, 
+                        "goals": {
+                            "0": {"seconds": 1080, "scorer": "K.Kuchaev", "team": "away"},
+                            "1": {"seconds": 2700, "scorer": "A.Dzagoev", "team": "away"},
+                        }
+                        "comment": "0:1 (18.) K.Kuchaev, 0:2 (45.) A.Dzagoev"},
+                        "periods": {
+                             "0": {"period": "p1", "home": 0, "away": 2},
+                             "1": {"period": "ft", "home": 0, "away": 2},
+                             "time": 1596891600, "homeId": 2338, "awayId": 2325
+
+https://stat-api.baltbet.ru/api/coefs/31391715
+    {"main": {
+        "0": {"name": "Результат", "order": 1, "coefs": {
+            "0": {"odds": 1.7, "coefId": 16313717428, "name": "1"},
+            "1": {"odds": 3.8, "coefId": 16313717429, "name": "X"},
+            "2": {"odds": 4.7, "coefId": 16313717430, "name": "2"}
+        }
+        "1": {"name": "Двойной шанс", "order": 2, "coefs": {
+            "0": {"odds": 1.17, "coefId": 16313717440, "name": "1X"},
+            "1": {"odds": 1.24, "coefId": 16313717439, "name": "12"},
+            "2": {"odds": 2.1, "coefId": 16313717438, "name": "X2"}
+        }
+        "2": {"name": "Тотал", "order": 4, "coefs": {
+            "0": {"odds": 1.82, "coefId": 16313717436, "name": "Бол", "value": "2,5"},
+            "1": {"odds": 1.95, "coefId": 16313717437, "name": "Мен", "value": "2,5"}
+        }
+        "3": {"name": "Фора", "order": 3, "coefs": {
+            "0": {"odds": 2.2, "coefId": 16313717434, "name": "Ф1к", "value": "-1"},
+            "1": {"odds": 1.63, "coefId": 16313717432, "name": "Ф2к", "value": "+1"}
+        },
+    "additional": []}

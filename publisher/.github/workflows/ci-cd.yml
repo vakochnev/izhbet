@@ -1,0 +1,43 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+      
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        
+    - name: Run tests
+      run: |
+        pip install pytest
+        pytest tests/
+        
+    - name: Build Docker image
+      run: |
+        docker build -t sports-forecast-publisher .
+        
+    - name: Push Docker image
+      if: github.ref == 'refs/heads/main'
+      run: |
+        docker tag sports-forecast-publisher your-dockerhub-username/sports-forecast-publisher
+        docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+        docker push your-dockerhub-username/sports-forecast-publisher

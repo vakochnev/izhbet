@@ -1,0 +1,171 @@
+Подключение к mysql в контейнере docker с хоста: 
+    https://stackoverflow.com/questions/33001750/connect-to-mysql-in-a-docker-container-from-the-host
+    https://www.iditect.com/program-example/docker--connect-to-remote-mysql-database-from-within-a-container.html
+Шпаргалка по SQL:
+    https://habr.com/ru/articles/564390/
+    https://tproger.ru/translations/sql-recap?ysclid=m3vcbxa4jh486328826
+===
+
+Установка: curl https://raw.githubusercontent.com/jesseduffield/lazydocker/master/scripts/install_update_linux.sh | bash
+Запуск: root/.local/bin/lazydocker
+
+===
+Запуск контейнера
+docker run --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=lhjyn147 -d mysql:latest
+
+BACKUP mysql - [имя контейнера]
+
+    docker exec -it mysql mysqldump --opt -u [uname] -p [pass] [dbname] > [backupfile.sql]
+    docker exec -it mysql mysqldump --opt -u root -p lhjyn147 izhbet > backup_izhbet.sql
+
+RESTORE
+
+    docker exec -it mysql mysql -u [uname] -p [pass] [db_to_restore] < [backupfile.sql]
+    docker exec -it mysql mysql -u root -p lhjyn147 izhbet < backup_izhbet.sql
+
+Cоздаем таблицу из консоли через mysql
+
+    mysql -u root -p
+
+    mysql> create database izhbet CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+    mysql> set global explicit_defaults_for_timestamp = ON;
+    mysql> SET GLOBAL FOREIGN_KEY_CHECKS = 0;
+
+    mysql> GRANT ALL PRIVILEGES ON db.* TO root@'localhost';
+
+===
+
+Для того, чтобы проверить статус MySQL, необходимо выполнить команду:
+service mysqld status
+
+Чтобы запустить, остановить или перезапустить MySQL, используются команды:
+service mysqld start
+service mysqld stop
+service mysqld restart
+
+Что бы подключиться к серверу MySQL из консоли, если сервер MySQL находится на том же хосте, используется команда:
+mysql -u username -p
+
+Что бы подключиться к серверу MySQL из консоли, если сервер MySQL находится на удаленном хосте external.com
+mysql -u username -p -h external.com
+
+Работа с базами, таблицами – просмотр, удаление, редактирование записей
+Создать базу данных на MySQL сервере:
+
+    mysql> CREATE DATABASE [databasename]; Показать список всех баз данных на сервере MySQL:
+
+    mysql> SHOW DATABASES; Переключиться для работы с определенной базой данных:
+
+    mysql> USE [db name]; Отобразить все таблицы в базе данных:
+
+    mysql> SHOW TABLES; Просмотреть формат таблицы в базе:
+
+    mysql> DESCRIBE [table name]; Удалить базу:
+
+    mysql> DROP DATABASE [database name]; Удалить таблицу из базы:
+
+    mysql> DROP TABLE [table name]; Показать все содержимое таблицы:
+
+    mysql> SELECT * FROM [table name]; Отобразить столбцы и содержимое столбцов в выбранной таблице:
+
+    mysql> SHOW COLUMNS FROM [table name]; Отобразить строки в определенной таблице, содержащие “whatever“:
+
+    mysql> SELECT * FROM [table name] WHERE [field name] = "whatever"; Отобразить все записи в определенной таблице, содержащие “Bob” и телефонный номер “3444444:
+
+    mysql> SELECT * FROM [table name] WHERE name = "Bob" AND phone_number = '3444444'; Отобразить все записи, НЕ содержащие имя “Bob” и телефонный номер “3444444“, отсортированные по полю phone_number:
+
+    mysql> SELECT * FROM [table name] WHERE name != "Bob" AND phone_number = '3444444' order by phone_number; Показать все записи, начинающиеся с букв ‘bob” и телефонного номера “3444444” в определенной таблице:
+
+    mysql> SELECT * FROM [table name] WHERE name like "Bob%" AND phone_number = '3444444'; Показать все записи, начинающиеся с букв ‘bob” и телефонного номера “3444444“, ограничиваясь записями с 1-ой до 5-ой:
+
+    mysql> SELECT * FROM [table name] WHERE name like "Bob%" AND phone_number = '3444444' limit 1,5; спользование регулярных выражений (“REGEXP BINARY”) для поиска записей. Например, для регистро-независимого поиска – найти все записи, начинающиеся с буквы А:
+
+    mysql> SELECT * FROM [table name] WHERE rec RLIKE "^a"; Показать все уникальные записи:
+
+    mysql> SELECT DISTINCT [column name] FROM [table name]; Отобразить выбранные записи, отсортированные по возрастанию (asc) или убыванию (desc):
+
+    mysql> SELECT [col1],[col2] FROM [table name] ORDER BY [col2] DESC; Показать количество строк в таблице:
+
+    mysql> SELECT COUNT(*) FROM [table name]; Подсчитать количество столбцов в таблице:
+
+    mysql> SELECT SUM(*) FROM [table name]; Удаление столбца:
+
+    mysql> ALTER TABLE [table name] DROP COLUMN [column name]; Добавление колонки в базу данных:
+
+    mysql> ALTER TABLE [table name] ADD COLUMN [new column name] varchar (20); Изменение имени столбца:
+
+    mysql> ALTER TABLE [table name] CHANGE [old column name] [new column name] varchar (50); Создать столбец с уникальным именем, что бы избежать дубликатов в названиях:
+
+    mysql> ALTER TABLE [table name] ADD UNIQUE ([column name]); Изменение размера столбца:
+
+    mysql> ALTER TABLE [table name] MODIFY [column name] VARCHAR(3); Удаление столбца из таблицы:
+
+    mysql> alter table [table name] DROP INDEX [column name]; Загрузка файла CSV в таблицу:
+
+    mysql> LOAD DATA INFILE '/tmp/filename.csv' replace INTO TABLE [table name] FIELDS TERMINATED BY ',' LINES TERMINATED BY 'n' (field1,field2,field3);
+    Пользователи, пароли сервера MySQL – добавление, изменение пользователей и паролей
+    Создание нового пользователя – подключение к серверу MySQL под root, переключение к базе данных, добавление пользователя, обновление привилегий:
+
+    mysql -u root -p
+    mysql> USE mysql;
+    mysql> INSERT INTO user (Host,User,Password) VALUES('%','username', PASSWORD('password'));
+    mysql> flush privileges;
+    Изменений пользовательского пароля из консоли на удаленном хосте external.com:
+
+    # mysqladmin -u username -h db1.example.org -p password 'new-password'
+    Изменение пользовательского пароля из консоли MySQL – подключение под root, обновление пароля, обновление привилегий:
+
+    mysql> SET PASSWORD FOR 'user'@'hostname' = PASSWORD('passwordhere');
+    mysql> flush privileges;
+    Восстановление/изменение пароля root сервера MySQL — остановка MySQL, запуск без таблиц привилегий, подключение под root, установка нового пароля, выход и перезапуск MySQL.
+
+
+Обновление пароля root:
+# service mysql stop
+# mysqld_safe --skip-grant-tables &
+# mysql -u root
+    mysql> use mysql;
+    mysql> update user set password=PASSWORD("newrootpassword") where User='root';
+    mysql> flush privileges;
+    mysql> quit
+# service  mysql stop
+# service  mysql start
+
+
+    mysqladmin -u root -p oldpassword newpassword
+    Установка права на подключение к серверу с хоста localhost с паролем «passwd» — подключение под root, переключение к базе данных, установка привилегий, обновление привилегий:
+
+    mysql -u root -p
+    mysql> use mysql;
+    mysql> grant usage on *.* to bob@localhost identified by 'passwd';
+    mysql> flush privileges;
+    Установка привилегий пользователю на использование базы данных — подключение под root, переключение к базе данных, установка привилегий, обновление привилегий:
+
+    mysql> use mysql;
+    mysql> INSERT INTO db (Host,Db,User,Select_priv,Insert_priv,Update_priv,Delete_priv,Create_priv,Drop_priv) VALUES ('%','databasename','username','Y','Y','Y','Y','Y','N');
+    mysql> flush privileges;
+
+или
+
+    mysql> grant all privileges on databasename.* to username@localhost;
+    mysql> flush privileges;
+    Обновление информации в базе данных:
+
+    mysql> UPDATE [table name] SET Select_priv = 'Y',Insert_priv = 'Y',Update_priv = 'Y' where [field name] = 'user'; Удаление строки в таблице:
+
+    mysql> DELETE from [table name] where [field name] = 'whatever'; Обновление привилегий в базе данных:
+
+    mysql> flush privileges; Резервные копии – создание, восстановление Создать резервную копию (dump) всех баз данных в файл alldatabases.sql:
+
+    mysqldump -u root -p password --opt >/tmp/alldatabases.sql Создать резервную копию одной базы данных в файл databasename.sql:
+
+    mysqldump -u username -p password --databases databasename >/tmp/databasename.sql Создать резервную копию одной таблицы в файл databasename.tablename.sql:
+
+    mysqldump -c -u username -p password databasename tablename > /tmp/databasename.tablename.sql Восстановление базы данных (или таблицы) из резервной копии:
+
+    mysql -u[username] -p[password] [databasename] < /tmp/databasename.sql Создание таблиц Создать таблицу, пример 1:
+
+    mysql> CREATE TABLE [table name] (firstname VARCHAR(20), middleinitial VARCHAR(3), lastname VARCHAR(35), suffix VARCHAR(3), officeid VARCHAR(10), userid VARCHAR(15), username VARCHAR(8), email VARCHAR(35), phone VARCHAR(25), groups VARCHAR(15), datestamp DATE, timestamp TIME, pgpemail VARCHAR(255));
+    Создать таблицу, пример 2:
+
+    mysql> create table [table name] (personid INT(50) NOT NULL AUTO_INCREMENT PRIMARY KEY, firstname VARCHAR(35), middlename VARCHAR(50), lastname VARCHAR(50) default 'bato');

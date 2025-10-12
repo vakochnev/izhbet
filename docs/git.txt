@@ -1,0 +1,100 @@
+---
+Подключение существующего кода к github
+git init -b main
+git add .
+git commit -m "First commit"
+
+# Создать репозиторий на github не создавать readme!!!
+# доступ по ssh git@github.com:vakochnev/izhbet.git
+
+# …or create a new repository on the command line
+# echo "# izhbet" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+# git branch - список доступных веток в локальных репозиториях
+git branch -M main
+# Связать локальный и удаленный репозитории
+git remote add origin git@github.com:vakochnev/izhbet.git
+# Проверить как подключили локальный и глобальный репозиторий
+git remote -v 
+git push -u origin main
+
+…or push an existing repository from the command line
+git remote add origin git@github.com:vakochnev/izhbet.git
+git branch -M main
+git push -u origin main
+---
+
+# Создание ключа ssh для для взаимодействие с github.
+Попросит имя файла и пароль для доступа к ключам
+ssh-keygen
+
+# Настраиваем ssh config
+# Чтобы ssh мог автоматически использовать правильные ключи при работе с удалёнными репозиториями, необходимо задать некоторые настройки. 
+# А именно - добавить в файл ~/.ssh/config следующие строки:
+
+Host github.com
+    HostName github.com
+    User git
+    IdentityFile ~/.ssh/personal_key
+    IdentitiesOnly yes
+
+# Получение открытого ключа для сохранения в github
+cat .ssh/id_rsa.pub  
+
+# Добавляем открытый ключи на github
+# Настройка локального git
+git config --global user.name "Вадим Кочнев"
+git config --global user.email "wka@list.ru" 
+
+# Клонирование репозитория
+git clone git@github.com:ваш-аккаунт-на-гитхабе/backend_test_homework.git 
+
+# Ввели команду для отображения состояния репозитория...
+git status
+
+# Добавили все изменения в index
+git add .  
+
+# Сделали коммит. Текст комментария: My first commit. 
+git commit -m "Add first commit"
+
+# Как сменить адрес удалённого репозитория
+# Если у вас уже есть репозиторий, синхронизация которого с удалённым сервером происходила по протоколу https, 
+# а теперь вы хотите использовать ssh, вам необходимо будет сменить адрес удалённого репозитория, 
+# выполнив следующую команду в локальном репозитории:
+
+git remote set-url origin git@github.com:vakochnev/izhbet.git
+
+Проверить, что изменения прошли корректно, можно путём выполнения команды
+
+git remote -v 
+в локальном репозитории. Если в выводе содержатся строки вида:
+
+origin	git@serviceurl:username/reponame.git (fetch)
+origin	git@serviceurl:username/reponame.git (push)
+с путями до вашего удалённого репозитория, значит, всё сделано правильно.
+
+# Создание новой ветки на основе текущей
+git branch <имя новой ветки>
+# Переключения на новую ветку
+git checkout <имя новой ветки>
+# Публикация локальной ветки на удаленный репозиторий. Находимся в той ветке которую хотим опубликовать
+git push origin <имя новой ветки>
+# Перенос из <имя новой ветки> разработки, в основную и соединить воедино (слияние веток)
+# Переключаемся на ту ветку куда будем переносить 
+git checkout main
+# Выполняем соединиение и указываем имя новой ветки с которой соединяем в будем в одном коммите
+# Все соединения происходят в локальном репозитории
+git merger <имя новой ветки>
+# Соединение со всеми коммитами
+git rebase <имя новой ветки>
+
+# Ветка по умолчанию была переименована, master теперь называется main
+# Если у вас есть локальный клон, вы можете обновить его, выполнив следующие команды.
+
+git branch -m master main
+git fetch origin
+git branch -u origin/main main
+git remote set-head origin -a

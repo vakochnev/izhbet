@@ -1,0 +1,92 @@
+name: Python CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          flake8 getting.py datahandler.py download.py --max-line-length=72 --exclude=__pycache__,*.pyc
+
+      - name: Format check with Black
+        run: |
+          black --check getting.py datahandler.py download.py
+
+      - name: Type checking with mypy
+        run: |
+          mypy getting.py datahandler.py download.py
+
+      - name: Run unit tests with pytest
+        run: |
+          pytest tests/
+
+      - name: Generate coverage report
+        run: |
+          pytest --cov=. --cov-report=xml
+
+      - name: Upload coverage to Codecov (optional)
+        uses: codecov/codecov-action@v3
+        if: always()
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Deploy Start (optional)
+        run: echo "Deploying to production..."
+
+      # Пример деплоя через SSH или Docker
+      # Используйте GitHub Secrets для хранения токенов/ключей
+      # Например, можно использовать rsync, scp, ssh, docker push и т.д.
+
+      - name: Deploy via SSH (example)
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          port: 22
+          script: |
+            cd /path/to/project
+            git pull origin main
+            pip install -r requirements.txt
+            systemctl restart your_app_service
+
+      - name: Build Docker image
+        run: |
+          docker build -t your-dockerhub-username/sportradar-stats:latest .
+
+      - name: Push Docker image
+        run: |
+          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASSWORD }}
+          docker push your-dockerhub-username/sportradar-stats:latest
+        if: always()
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+

@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "mysql": {
+      "command": "mcp-server-mysql",
+      "args": [],
+      "env": {
+        "MYSQL_HOST": "${env:DATABASE_HOST}",
+        "MYSQL_PORT": "${env:DATABASE_PORT}",
+        "MYSQL_DATABASE": "${env:DATABASE_NAME}",
+        "MYSQL_USER": "${env:DATABASE_USER}",
+        "MYSQL_PASSWORD": "${env:DATABASE_PASSWORD}",
+        "MYSQL_TLS": "false"
+      }
+    }
+  }
+}
+
+

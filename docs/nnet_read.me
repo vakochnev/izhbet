@@ -1,0 +1,42 @@
+Помните: для бинарной классификации стек слоев должен завершаться слоем Dense
+с единственным измерением, функцией активации sigmoid и функцией потерь
+binary_crossentropy . Вашей целью должно быть значение 0 или 1:
+
+from keras import models
+from keras import layers
+model = models.Sequential()
+model.add(layers.Dense(32, activation='relu', input_shape=(num_input_features,)))
+model.add(layers.Dense(32, activation='relu'))
+model.add(layers.Dense(1, activation='sigmoid'))
+model.compile(optimizer='rmsprop', loss='binary_crossentropy')
+
+Для выполнения однозначной классификации (когда каждый образец принадлежит точно одному классу) завершайте стек слоев слоем Dense с количеством измерений,
+равным количеству классов, и функцией активации softmax . Если цели получены прямым кодированием, используйте функцию потерь categorical_crossentropy ;
+если они — целые числа, используйте sparse_categorical_crossentropy :
+
+model = models.Sequential()
+model.add(layers.Dense(32, activation='relu', input_shape=(num_input_features,)))
+model.add(layers.Dense(32, activation='relu'))
+model.add(layers.Dense(num_classes, activation='softmax'))
+model.compile(optimizer='rmsprop', loss='categorical_crossentropy')
+
+Для выполнения многозначной классификации (когда каждый образец может принадлежать нескольким классам сразу) завершайте стек слоев слоем Dense с коли-
+чеством измерений, равным количеству классов, функцией активации softmax и функцией потерь binary_crossentropy . Ваши цели должны быть получены
+k-мерным прямым кодированием:
+
+model = models.Sequential()
+model.add(layers.Dense(32, activation='relu', input_shape=(num_input_features,)))
+model.add(layers.Dense(32, activation='relu'))
+model.add(layers.Dense(num_classes, activation='sigmoid'))
+model.compile(optimizer='rmsprop', loss='binary_crossentropy')
+
+Чтобы выполнить регрессию в направлении вектора непрерывных значений, завершайте стек слоев слоем Dense с количеством измерений, равным количеству
+значений, которые вы пытаетесь предсказать (часто одно, например цена на недвижимость), без функции активации. 
+Для регрессии можно использовать несколько. Краткий обзор ключевых понятий функций потерь; наиболее часто на практике используются mean_squared_error
+(MSE) и mean_absolute_error (MAE):
+
+model = models.Sequential()
+model.add(layers.Dense(32, activation='relu', input_shape=(num_input_features,)))
+model.add(layers.Dense(32, activation='relu'))
+model.add(layers.Dense(num_values))
+model.compile(optimizer='rmsprop', loss='mse')

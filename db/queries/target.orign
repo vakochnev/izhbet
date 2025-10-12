@@ -1,0 +1,25 @@
+"""
+Запросы для работы с целевыми переменными (targets).
+"""
+
+import logging
+from typing import List, Dict, Any, Optional
+import pandas as pd
+from sqlalchemy import text
+
+from config import Session_pool, DBSession
+from db.models import Target
+
+
+logger = logging.getLogger(__name__)
+
+
+def get_target_match_ids(
+        db_session: DBSession,
+        match_ids: list[int]
+) -> list[Target]:
+    return (
+        db_session.query(Target).filter(
+            Target.match_id.in_(match_ids)
+        ).all()
+    )
