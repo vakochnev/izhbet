@@ -756,7 +756,16 @@ def get_scalers(method: str):
 
 
 def get_feature_correct(row, forecast_col, feature_col):
-    """Получает корректность прогноза."""
+    """
+    [DEPRECATED] Получает корректность прогноза.
+    
+    ВНИМАНИЕ: Эта функция устарела и не используется!
+    Используйте вместо нее:
+    - core.prediction_validator.is_prediction_correct_from_target() для проверки правильности
+    - Таблица targets в БД уже содержит все необходимые предрасчитанные значения
+    
+    Оставлена для обратной совместимости, может быть удалена в будущих версиях.
+    """
     match_id = row['match_id']
     match = get_match_id_pool(match_id=match_id)
     total = SIZE_TOTAL[SPR_SPORTS[match.sport_id]]

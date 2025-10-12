@@ -67,3 +67,17 @@ def get_target_match_ids(
             Target.match_id.in_(match_ids)
         ).all()
     )
+
+
+def get_target_by_match_id(match_id: int) -> Optional[Target]:
+    """
+    Получает target по match_id (удобная функция-обертка).
+    
+    Args:
+        match_id: ID матча
+        
+    Returns:
+        Target: Объект Target или None если не найден
+    """
+    with Session_pool() as session:
+        return session.query(Target).filter_by(match_id=match_id).first()

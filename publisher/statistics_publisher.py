@@ -169,14 +169,14 @@ class StatisticsPublisher:
             if regular_data:
                 regular_forecasts.append({'match': match, 'forecasts': regular_data})
             else:
-                logger.critical(f'CRITICAL: Нет regular прогнозов (outcomes) для матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
+                logger.warning(f'Нет regular прогнозов (outcomes) для матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
             
             # Получаем quality прогнозы из таблицы statistics
             quality_data = self._get_statistics_for_match(match_id)
             if quality_data:
                 quality_forecasts.append({'match': match, 'forecasts': quality_data})
             else:
-                logger.critical(f'CRITICAL: Нет quality прогнозов (statistics) для матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
+                logger.warning(f'Нет quality прогнозов (statistics) для матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
         
         # Публикуем regular прогнозы
         if regular_forecasts:
@@ -214,14 +214,14 @@ class StatisticsPublisher:
             if regular_data:
                 regular_outcomes.append({'match': match, 'outcomes': regular_data})
             else:
-                logger.critical(f'CRITICAL: Нет regular итогов (outcomes) для завершенного матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
+                logger.warning(f'Нет regular итогов (outcomes) для завершенного матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
             
             # Получаем quality итоги из таблицы statistics
             quality_data = self._get_statistics_for_match(match_id)
             if quality_data:
                 quality_outcomes.append({'match': match, 'outcomes': quality_data})
             else:
-                logger.critical(f'CRITICAL: Нет quality итогов (statistics) для завершенного матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
+                logger.warning(f'Нет quality итогов (statistics) для завершенного матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
         
         # Публикуем regular итоги
         if regular_outcomes:
@@ -409,7 +409,7 @@ class StatisticsPublisher:
                 hist_stats = self._get_extended_statistics_for_feature(feature)
                 
                 # Определяем правильность прогноза
-                status = self._determine_prediction_status(feature, forecast_value, match)
+                status = self._determine_prediction_status(feature, forecast_value, match['id'])
                 
                 feature_desc = self._get_feature_description_from_outcome(feature, outcome_value)
                 
@@ -1417,7 +1417,7 @@ class StatisticsPublisher:
                     feature_description = self._get_feature_description_from_outcome(feature, outcome)
                     
                     # Определяем правильность прогноза на основе результата матча
-                    status_icon = self._determine_prediction_status(feature, outcome, match_info)
+                    status_icon = self._determine_prediction_status(feature, outcome, match_id)
                     
                     # Получаем историческую статистику для regular прогнозов
                     forecast_type, forecast_subtype = self._get_forecast_type_subtype_from_feature(feature, outcome)
@@ -2635,7 +2635,7 @@ class StatisticsPublisher:
                     feature_description = self._get_feature_description_from_outcome(feature, outcome)
                     
                     # Определяем правильность прогноза на основе результата матча
-                    status_icon = self._determine_prediction_status(feature, outcome, match_info)
+                    status_icon = self._determine_prediction_status(feature, outcome, match_id)
                     
                     # Получаем историческую статистику для regular прогнозов
                     forecast_type, forecast_subtype = self._get_forecast_type_subtype_from_feature(feature, outcome)
@@ -2963,137 +2963,27 @@ class StatisticsPublisher:
             logger.error(f'Ошибка при получении данных регрессии для матча {match_id}: {e}')
             return None
     
-    def _determine_prediction_status(self, feature: int, outcome: str, match_info: dict) -> str:
+    def _determine_prediction_status(self, feature: int, outcome: str, match_id: int) -> str:
         """
-        Определяет правильность прогноза на основе результата матча.
+        Определяет правильность прогноза на основе target из БД.
         
         Args:
-            feature: Код feature
+            feature: Код feature (1-10)
             outcome: Прогноз из таблицы outcomes
-            match_info: Информация о матче
+            match_id: ID матча
             
         Returns:
             str: ✅, ❌ или ⏳ (если матч еще не состоялся)
         """
         try:
-            import pandas as pd
-            import numpy as np
+            from core.prediction_validator import get_prediction_status_from_target
+            from db.queries.target import get_target_by_match_id
             
-            home_goals = match_info.get('numOfHeadsHome')
-            away_goals = match_info.get('numOfHeadsAway')
-            
-            # Проверяем, что матч состоялся (результат известен)
-            if home_goals is None or away_goals is None or pd.isna(home_goals) or pd.isna(away_goals):
-                return '⏳'  # Матч еще не состоялся
-            
-            # Преобразуем в числа
-            home_goals = float(home_goals)
-            away_goals = float(away_goals)
-            
-            # Определяем результат матча
-            if home_goals > away_goals:
-                match_result = 'home_win'  # П1
-            elif home_goals < away_goals:
-                match_result = 'away_win'  # П2
-            else:
-                match_result = 'draw'  # X
-            
-            # Проверяем правильность прогноза для каждого типа
-            if feature == 1:  # WIN_DRAW_LOSS
-                if outcome == 'х' and match_result == 'draw':
-                    return '✅'
-                elif outcome == 'п1' and match_result == 'home_win':
-                    return '✅'
-                elif outcome == 'п2' and match_result == 'away_win':
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 2:  # OZ (Обе забьют)
-                both_scored = home_goals > 0 and away_goals > 0
-                if outcome == 'обе забьют - да' and both_scored:
-                    return '✅'
-                elif outcome == 'обе забьют - нет' and not both_scored:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 3:  # GOAL_HOME
-                home_scored = home_goals > 0
-                if outcome == '1 забьет - да' and home_scored:
-                    return '✅'
-                elif outcome == '1 забьет - нет' and not home_scored:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 4:  # GOAL_AWAY
-                away_scored = away_goals > 0
-                if outcome == '2 забьет - да' and away_scored:
-                    return '✅'
-                elif outcome == '2 забьет - нет' and not away_scored:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 5:  # TOTAL
-                total_goals = home_goals + away_goals
-                if outcome == 'тб' and total_goals > 2.5:
-                    return '✅'
-                elif outcome == 'тм' and total_goals < 2.5:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 6:  # TOTAL_HOME
-                if outcome == 'ит1б' and home_goals > 1.5:
-                    return '✅'
-                elif outcome == 'ит1м' and home_goals < 1.5:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 7:  # TOTAL_AWAY
-                if outcome == 'ит2б' and away_goals > 1.5:
-                    return '✅'
-                elif outcome == 'ит2м' and away_goals < 1.5:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 8:  # TOTAL_AMOUNT (регрессия общего тотала)
-                total_goals = home_goals + away_goals
-                outcome_upper = outcome.upper()
-                if outcome_upper == 'ТМ' and total_goals < 2.5:
-                    return '✅'
-                elif outcome_upper == 'ТБ' and total_goals > 2.5:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 9:  # TOTAL_HOME_AMOUNT (регрессия тотала хозяев)
-                outcome_upper = outcome.upper()
-                if outcome_upper == 'ИТ1М' and home_goals < 1.5:
-                    return '✅'
-                elif outcome_upper == 'ИТ1Б' and home_goals > 1.5:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            elif feature == 10:  # TOTAL_AWAY_AMOUNT (регрессия тотала гостей)
-                outcome_upper = outcome.upper()
-                if outcome_upper == 'ИТ2М' and away_goals < 1.5:
-                    return '✅'
-                elif outcome_upper == 'ИТ2Б' and away_goals > 1.5:
-                    return '✅'
-                else:
-                    return '❌'
-            
-            else:
-                return '❌'
+            target = get_target_by_match_id(match_id)
+            return get_prediction_status_from_target(feature, outcome, target)
             
         except Exception as e:
-            logger.error(f'Ошибка при определении статуса прогноза для feature {feature}: {e}')
+            logger.error(f'Ошибка при определении статуса прогноза для feature {feature}, match {match_id}: {e}')
             return '❌'
 
     def _get_historical_statistics(self, forecast_type: str, forecast_subtype: str) -> Dict[str, Any]:
@@ -3423,10 +3313,10 @@ class StatisticsPublisher:
             for _, row in match_group.iterrows():
                 feature = row.get('feature', 0)
                 outcome = row.get('outcome', '')
-                match_info = row.to_dict()
+                match_id = row.get('match_id', row.get('id', 0))
                 
                 # Определяем правильность прогноза
-                status = self._determine_prediction_status(feature, outcome, match_info)
+                status = self._determine_prediction_status(feature, outcome, match_id)
                 if status == '✅':
                     correct_count += 1
             
@@ -3509,10 +3399,10 @@ class StatisticsPublisher:
             for _, row in df_day.iterrows():
                 feature = row.get('feature', 0)
                 outcome = row.get('outcome', '')
-                match_info = row.to_dict()
+                match_id = row.get('match_id', row.get('id', 0))
                 
                 # Определяем правильность прогноза
-                status = self._determine_prediction_status(feature, outcome, match_info)
+                status = self._determine_prediction_status(feature, outcome, match_id)
                 if status == '✅':
                     correct_count += 1
             

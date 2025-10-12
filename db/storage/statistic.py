@@ -122,13 +122,13 @@ def save_conformal_outcome_with_statistics(db_session: Session, result: Dict[str
                 logger.error(f"Ошибка интеграции outcome {outcome.id}: {e}")
                 continue
         
-        logger.info(f"Успешно интегрированы {len([o for o in latest_outcomes if _is_quality_outcome(_map_feature_to_type(o.feature), o.probability, o.confidence)])} outcomes в statistics")
+        # logger.info(f"Успешно интегрированы {len([o for o in latest_outcomes if _is_quality_outcome(_map_feature_to_type(o.feature), o.probability, o.confidence)])} outcomes в statistics")
         
         # 3. Обновляем результаты матча в statistics (если матч завершен)
         try:
             match = db_session.query(Match).filter(Match.id == match_id).first()
             if match and match.numOfHeadsHome is not None and match.numOfHeadsAway is not None:
-                logger.info(f"Обновляем результаты матча {match_id}: {match.numOfHeadsHome}:{match.numOfHeadsAway}")
+                # logger.info(f"Обновляем результаты матча {match_id}: {match.numOfHeadsHome}:{match.numOfHeadsAway}")
                 update_match_results(match_id, match.numOfHeadsHome, match.numOfHeadsAway)
         except Exception as e:
             logger.warning(f"Не удалось обновить результаты матча {match_id}: {e}")
@@ -373,46 +373,36 @@ def update_match_results(match_id: int, goal_home: int, goal_away: int) -> bool:
             for statistic in statistics:
                 statistic.actual_value = actual_value
 
-                # Пересчитываем качество прогнозов и устанавливаем бинарный actual_result
+                # Пересчитываем качество прогнозов используя prediction_validator
                 if statistic.outcome_id:
                     outcome = db_session.query(Outcome).filter(Outcome.id == statistic.outcome_id).first()
                     if outcome:
-                        is_success = False
+                        from core.prediction_validator import is_prediction_correct_from_target
+                        from db.queries.target import get_target_by_match_id
                         
-                        if statistic.forecast_type == 'win_draw_loss':
-                            # П1, Х, П2 -> home_win, draw, away_win
-                            outcome_mapping = {'п1': 'home_win', 'х': 'draw', 'п2': 'away_win'}
-                            expected_result = outcome_mapping.get(outcome.outcome, 'unknown')
-                            is_success = (expected_result == actual_result)
-                            
-                        elif statistic.forecast_type == 'oz':
-                            # "обе забьют - да/нет" - определяем по голам
-                            both_scored = (goal_home > 0 and goal_away > 0)
-                            if outcome.outcome == 'обе забьют - да':
-                                is_success = both_scored
-                            elif outcome.outcome == 'обе забьют - нет':
-                                is_success = not both_scored
-                            
-                        elif statistic.forecast_type == 'total':
-                            # ТБ/ТМ - сравниваем с общим количеством голов
-                            if outcome.outcome == 'тб':
-                                is_success = (actual_value > outcome.forecast)
-                            elif outcome.outcome == 'тм':
-                                is_success = (actual_value < outcome.forecast)
-                            
-                        elif statistic.forecast_type == 'total_home':
-                            # ИТ1Б/ИТ1М - сравниваем с голами домашней команды
-                            if outcome.outcome == 'ит1б':
-                                is_success = (goal_home > outcome.forecast)
-                            elif outcome.outcome == 'ит1м':
-                                is_success = (goal_home < outcome.forecast)
-                            
-                        elif statistic.forecast_type == 'total_away':
-                            # ИТ2Б/ИТ2М - сравниваем с голами гостевой команды
-                            if outcome.outcome == 'ит2б':
-                                is_success = (goal_away > outcome.forecast)
-                            elif outcome.outcome == 'ит2м':
-                                is_success = (goal_away < outcome.forecast)
+                        # Маппинг forecast_type -> feature
+                        forecast_type_to_feature = {
+                            'win_draw_loss': 1,
+                            'oz': 2,
+                            'goal_home': 3,
+                            'goal_away': 4,
+                            'total': 5,
+                            'total_home': 6,
+                            'total_away': 7,
+                            'total_amount': 8,
+                            'total_home_amount': 9,
+                            'total_away_amount': 10
+                        }
+                        
+                        feature = forecast_type_to_feature.get(statistic.forecast_type)
+                        if feature:
+                            target = get_target_by_match_id(match_id)
+                            if target:
+                                is_success = is_prediction_correct_from_target(feature, outcome.outcome, target)
+                            else:
+                                is_success = False
+                        else:
+                            is_success = False
                         
                         statistic.prediction_correct = is_success
                         statistic.actual_result = is_success  # boolean: True/False
@@ -420,7 +410,7 @@ def update_match_results(match_id: int, goal_home: int, goal_away: int) -> bool:
             
             db_session.commit()
             
-            logger.info(f"Обновлена статистика для матча {match_id}: {actual_result} ({goal_home}:{goal_away})")
+            # logger.info(f"Обновлена статистика для матча {match_id}: {actual_result} ({goal_home}:{goal_away})")
             return True
             
     except Exception as e:

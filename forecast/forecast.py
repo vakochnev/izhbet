@@ -126,58 +126,8 @@ def check_team_goals_correct_from_targets(predicted_outcome: str, forecast_type:
     return False
 
 
-def check_total_correct_from_targets(predicted_outcome: str, forecast_type: str, match: pd.Series) -> bool:
-    home_goals = match.get('numOfHeadsHome', None)
-    away_goals = match.get('numOfHeadsAway', None)
-    if pd.isna(home_goals) or pd.isna(away_goals):
-        return False
-    total_goals = home_goals + away_goals
-    if forecast_type == 'total':
-        threshold = 2.5
-        actual = total_goals
-    elif forecast_type == 'total_home':
-        threshold = 1.5
-        actual = home_goals
-    elif forecast_type == 'total_away':
-        threshold = 1.5
-        actual = away_goals
-    else:
-        return False
-    po = str(predicted_outcome).lower()
-    if 'больше' in po or po.endswith('б'):
-        return actual > threshold
-    if 'меньше' in po or po.endswith('м'):
-        return actual < threshold
-    return False
-
-
-def check_amount_correct_from_targets(predicted_outcome: str, forecast_type: str, match: pd.Series) -> bool:
-    home_goals = match.get('numOfHeadsHome', None)
-    away_goals = match.get('numOfHeadsAway', None)
-    if pd.isna(home_goals) or pd.isna(away_goals):
-        return False
-    if forecast_type == 'total_amount':
-        actual_amount = home_goals + away_goals
-        threshold = 2.5
-    elif forecast_type == 'total_home_amount':
-        actual_amount = home_goals
-        threshold = 1.5
-    elif forecast_type == 'total_away_amount':
-        actual_amount = away_goals
-        threshold = 1.5
-    else:
-        return False
-    po = str(predicted_outcome).lower().replace(' ', '')
-    if any(token in po for token in ['ит1м', 'ит2м', 'меньше', 'м']):
-        return actual_amount < threshold
-    if any(token in po for token in ['ит1б', 'ит2б', 'больше', 'б']):
-        return actual_amount > threshold
-    try:
-        forecast_value = float(predicted_outcome)
-        return abs(forecast_value - actual_amount) <= 0.1
-    except (ValueError, TypeError):
-        return False
-
+# Старые функции check_total_correct_from_targets и check_amount_correct_from_targets удалены.
+# Теперь используется единая логика через core/prediction_validator.py и таблицу targets.
 
 def build_nn_value_suffix(forecast_type: str, forecast_data: Dict) -> str:
     if forecast_type in ['total_amount', 'total_home_amount', 'total_away_amount']:
@@ -192,33 +142,48 @@ def build_nn_value_suffix(forecast_type: str, forecast_data: Dict) -> str:
 
 def is_forecast_correct(forecast_data: dict, match: pd.Series) -> bool:
     """
-    Определяет, был ли прогноз правильным.
+    Определяет, был ли прогноз правильным используя target из БД.
     
     Args:
         forecast_data: Словарь с данными прогноза (forecast_type, outcome)
-        match: Series с данными матча (numOfHeadsHome, numOfHeadsAway)
+        match: Series с данными матча (id, numOfHeadsHome, numOfHeadsAway)
         
     Returns:
         bool: True если прогноз правильный, False иначе
     """
+    from core.prediction_validator import is_prediction_correct_from_target
+    from db.queries.target import get_target_by_match_id
+    
     forecast_type = forecast_data.get('forecast_type', '')
     outcome = forecast_data.get('outcome', '')
+    match_id = match.get('id', match.get('match_id', 0))
     
-    if not forecast_type or not outcome:
+    if not forecast_type or not outcome or not match_id:
         return False
     
-    # Проверяем по типу прогноза
-    if forecast_type == 'win_draw_loss':
-        return check_match_outcome_correct_from_targets(outcome, match)
-    elif forecast_type == 'oz':
-        return check_both_teams_score_correct_from_targets(outcome, match)
-    elif forecast_type in ['goal_home', 'goal_away']:
-        return check_team_goals_correct_from_targets(outcome, forecast_type, match)
-    elif forecast_type in ['total', 'total_home', 'total_away']:
-        return check_total_correct_from_targets(outcome, forecast_type, match)
-    elif forecast_type in ['total_amount', 'total_home_amount', 'total_away_amount']:
-        return check_amount_correct_from_targets(outcome, forecast_type, match)
+    # Маппинг forecast_type -> feature
+    forecast_type_to_feature = {
+        'win_draw_loss': 1,
+        'oz': 2,
+        'goal_home': 3,
+        'goal_away': 4,
+        'total': 5,
+        'total_home': 6,
+        'total_away': 7,
+        'total_amount': 8,
+        'total_home_amount': 9,
+        'total_away_amount': 10
+    }
     
-    return False
+    feature = forecast_type_to_feature.get(forecast_type)
+    if not feature:
+        return False
+    
+    # Получаем target и проверяем правильность
+    target = get_target_by_match_id(match_id)
+    if not target:
+        return False
+    
+    return is_prediction_correct_from_target(feature, outcome, target)
 
 
