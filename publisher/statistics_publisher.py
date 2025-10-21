@@ -9,16 +9,88 @@ from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional, Any
 import pandas as pd
 
+from db.models.outcome import Outcome
+from db.models.prediction import Prediction
 from db.queries.statistics import (
     get_statistics_for_today, get_statistics_for_date, get_statistics_for_period, get_all_statistics,
-    get_predictions_for_today, get_predictions_for_date, get_all_predictions,
-    get_outcomes_for_today, get_outcomes_for_date, get_all_outcomes as get_all_outcomes_completed
+    get_predictions_for_today, get_all_predictions,
 )
 from db.queries.outcome import get_outcomes_for_date as get_outcomes_for_date_outcome, get_all_outcomes
+from db.queries.match import get_matches_for_date, get_statistics_for_match
+from db.queries.statistics_metrics import (
+    get_historical_accuracy_regular,
+    get_recent_accuracy,
+    get_calibration,
+    get_stability,
+    get_confidence_bounds
+)
+from db.queries.statistics_cache import (
+    get_complete_statistics_cached as get_complete_statistics,
+    clear_statistics_cache,
+    get_cache_info
+)
+from db.queries.target import get_target_by_match_id
+from db.storage.publisher import save_conformal_report
 from publisher.sending import Publisher
-from publisher.conformal_sending import ConformalPublisher
+from publisher.conformal_sending import ConformalPublisher, ConformalDailyPublisher
+from publisher.formatters import ForecastFormatter, OutcomeFormatter, ReportBuilder
+from core.prediction_validator import get_prediction_status_from_target
+from config import Session_pool
+
 
 logger = logging.getLogger(__name__)
+
+
+def get_feature_sort_order(feature: int) -> int:
+    """
+    Возвращает порядок сортировки для feature.
+    
+    Порядок:
+    1. WIN_DRAW_LOSS (feature 1)
+    2. OZ (feature 2)
+    3. TOTAL (feature 5)
+    4. TOTAL_AMOUNT (feature 8)
+    5. TOTAL_HOME (feature 6)
+    6. TOTAL_HOME_AMOUNT (feature 9)
+    7. TOTAL_AWAY (feature 7)
+    8. TOTAL_AWAY_AMOUNT (feature 10)
+    9. GOAL_HOME (feature 3)
+    10. GOAL_AWAY (feature 4)
+    """
+    order_map = {
+        1: 1,   # WIN_DRAW_LOSS
+        2: 2,   # OZ
+        5: 3,   # TOTAL
+        8: 4,   # TOTAL_AMOUNT
+        6: 5,   # TOTAL_HOME
+        9: 6,   # TOTAL_HOME_AMOUNT
+        7: 7,   # TOTAL_AWAY
+        10: 8,  # TOTAL_AWAY_AMOUNT
+        3: 9,   # GOAL_HOME
+        4: 10   # GOAL_AWAY
+    }
+    return order_map.get(feature, 99)
+
+
+def get_forecast_type_sort_order(forecast_type: str) -> int:
+    """
+    Возвращает порядок сортировки для forecast_type (для quality отчетов).
+    
+    Порядок аналогичен get_feature_sort_order.
+    """
+    order_map = {
+        'win_draw_loss': 1,
+        'oz': 2,
+        'total': 3,
+        'total_amount': 4,
+        'total_home': 5,
+        'total_home_amount': 6,
+        'total_away': 7,
+        'total_away_amount': 8,
+        'goal_home': 9,
+        'goal_away': 10
+    }
+    return order_map.get(forecast_type.lower() if forecast_type else '', 99)
 
 
 class StatisticsPublisher:
@@ -34,6 +106,9 @@ class StatisticsPublisher:
     def __init__(self):
         self.publishers: List[Publisher] = []
         self.conformal_publishers: List[ConformalPublisher] = []
+        self.forecast_formatter = ForecastFormatter()
+        self.outcome_formatter = OutcomeFormatter()
+        self.report_builder = ReportBuilder()
         self._setup_publishers()
     
     def _setup_publishers(self) -> None:
@@ -41,7 +116,6 @@ class StatisticsPublisher:
         logger.info('Настройка публикаторов для статистики')
         
         # Добавляем файловый публикатор
-        from publisher.conformal_sending import ConformalDailyPublisher
         self.conformal_publishers.append(
             ConformalDailyPublisher(file='results')
         )
@@ -70,8 +144,8 @@ class StatisticsPublisher:
             yesterday = today - timedelta(days=1)
             
             # Загружаем матчи за вчера и сегодня
-            matches_today = self._get_matches_for_date(today)
-            matches_yesterday = self._get_matches_for_date(yesterday)
+            matches_today = get_matches_for_date(today)
+            matches_yesterday = get_matches_for_date(yesterday)
             
             logger.info(f'Найдено матчей на сегодня ({today}): {len(matches_today)}')
             logger.info(f'Найдено матчей за вчера ({yesterday}): {len(matches_yesterday)}')
@@ -88,64 +162,16 @@ class StatisticsPublisher:
             else:
                 logger.warning(f'Нет матчей за {yesterday} для формирования итогов')
             
+            # Логируем статистику кеша
+            cache_info = get_cache_info()
+            logger.info(f'Кеш статистики: {cache_info["hits"]} попаданий, {cache_info["misses"]} промахов, эффективность {cache_info["hit_rate"]*100:.1f}%')
+            
             logger.info('Публикация прогнозов и итогов завершена')
             return True
             
         except Exception as e:
             logger.error(f'Ошибка при публикации прогнозов и итогов: {e}', exc_info=True)
             return False
-    
-    def _get_matches_for_date(self, target_date: date) -> List[Dict]:
-        """
-        Получает список матчей на указанную дату из таблицы matches.
-        
-        Args:
-            target_date: Дата для выборки матчей
-            
-        Returns:
-            List[Dict]: Список матчей с полной информацией
-        """
-        from db.models.match import Match
-        from db.models.team import Team
-        from db.models.championship import ChampionShip
-        from db.models.sport import Sport
-        from config import Session_pool
-        from sqlalchemy import func
-        
-        with Session_pool() as session:
-            TeamHome = Team.__table__.alias('team_home')
-            TeamAway = Team.__table__.alias('team_away')
-            
-            query = session.query(
-                Match.id,
-                Match.gameData,
-                Match.teamHome_id,
-                Match.teamAway_id,
-                Match.numOfHeadsHome,
-                Match.numOfHeadsAway,
-                Match.typeOutcome,
-                Match.tournament_id,
-                TeamHome.c.teamName.label('team_home_name'),
-                TeamAway.c.teamName.label('team_away_name'),
-                ChampionShip.championshipName,
-                Sport.sportName
-            ).outerjoin(
-                TeamHome, Match.teamHome_id == TeamHome.c.id
-            ).outerjoin(
-                TeamAway, Match.teamAway_id == TeamAway.c.id
-            ).outerjoin(
-                ChampionShip, Match.tournament_id == ChampionShip.id
-            ).outerjoin(
-                Sport, ChampionShip.sport_id == Sport.id
-            ).filter(
-                func.date(Match.gameData) == target_date
-            ).order_by(
-                Match.gameData
-            )
-            
-            result = query.all()
-            matches = [row._asdict() for row in result]
-            return matches
     
     def _publish_forecasts_for_matches(self, matches: List[Dict], target_date: date) -> None:
         """
@@ -172,7 +198,7 @@ class StatisticsPublisher:
                 logger.warning(f'Нет regular прогнозов (outcomes) для матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
             
             # Получаем quality прогнозы из таблицы statistics
-            quality_data = self._get_statistics_for_match(match_id)
+            quality_data = get_statistics_for_match(match_id)
             if quality_data:
                 quality_forecasts.append({'match': match, 'forecasts': quality_data})
             else:
@@ -217,7 +243,7 @@ class StatisticsPublisher:
                 logger.warning(f'Нет regular итогов (outcomes) для завершенного матча ID {match_id} ({match.get("team_home_name")} vs {match.get("team_away_name")})')
             
             # Получаем quality итоги из таблицы statistics
-            quality_data = self._get_statistics_for_match(match_id)
+            quality_data = get_statistics_for_match(match_id)
             if quality_data:
                 quality_outcomes.append({'match': match, 'outcomes': quality_data})
             else:
@@ -243,32 +269,12 @@ class StatisticsPublisher:
         Returns:
             List[Dict]: Список outcomes
         """
-        from db.models.outcome import Outcome
-        from config import Session_pool
-        
         with Session_pool() as session:
             query = session.query(Outcome).filter(Outcome.match_id == match_id)
             result = query.all()
             return [row.to_dict() if hasattr(row, 'to_dict') else row.__dict__ for row in result]
     
-    def _get_statistics_for_match(self, match_id: int) -> List[Dict]:
-        """
-        Получает statistics для конкретного матча.
-        
-        Args:
-            match_id: ID матча
-            
-        Returns:
-            List[Dict]: Список statistics
-        """
-        from db.models.statistics import Statistic
-        from config import Session_pool
-        
-        with Session_pool() as session:
-            query = session.query(Statistic).filter(Statistic.match_id == match_id)
-            result = query.all()
-            return [row.to_dict() if hasattr(row, 'to_dict') else row.__dict__ for row in result]
-    
+
     def _publish_daily_forecasts_regular(self, forecasts_data: List[Dict], target_date: date) -> None:
         """
         Публикует regular прогнозы (из outcomes) в файл.
@@ -277,46 +283,8 @@ class StatisticsPublisher:
             forecasts_data: Список прогнозов с информацией о матчах
             target_date: Дата для файла
         """
-        from db.storage.publisher import save_conformal_report
-        
-        report = f"📊 ОБЫЧНЫЕ ПРОГНОЗЫ - {target_date.strftime('%d.%m.%Y')}\n\n"
-        
-        for item in forecasts_data:
-            match = item['match']
-            forecasts = item['forecasts']
-            
-            report += f"🆔 Match ID: {match['id']}\n"
-            report += f"🏆 {match.get('sportName', 'Unknown')} - {match.get('championshipName', 'Unknown')}\n"
-            report += f"⚽ {match.get('team_home_name', 'Unknown')} vs {match.get('team_away_name', 'Unknown')}\n"
-            report += f"🕐 {match.get('gameData', '').strftime('%H:%M') if match.get('gameData') else 'TBD'}\n\n"
-            report += f"📊 ДЕТАЛЬНАЯ СТАТИСТИКА ПРОГНОЗА:\n\n"
-            
-            for forecast in forecasts:
-                feature = forecast.get('feature', 0)
-                outcome = forecast.get('outcome', '')
-                probability = forecast.get('probability', 0) * 100 if forecast.get('probability') else 0
-                confidence = forecast.get('confidence', 0) * 100 if forecast.get('confidence') else 0
-                uncertainty = forecast.get('uncertainty', 0) * 100 if forecast.get('uncertainty') else 0
-                lower_bound = forecast.get('lower_bound', 0)
-                upper_bound = forecast.get('upper_bound', 0)
-                
-                # Получаем расширенную статистику из predictions
-                hist_stats = self._get_extended_statistics_for_feature(feature)
-                
-                feature_desc = self._get_feature_description_from_outcome(feature, outcome)
-                
-                report += f"• {feature_desc}: {outcome}\n"
-                report += f"  🎯 Вероятность: {probability:.1f}% | 🔒 Уверенность: {confidence:.1f}% | 📊 Неопределенность: {uncertainty:.1f}%\n"
-                report += f"  📈 Границы: [{lower_bound:.2f} - {upper_bound:.2f}]"
-                
-                if hist_stats:
-                    report += f" | ⚖️ Калибровка: {hist_stats.get('calibration', 0):.1f}% | 🛡️ Стабильность: {hist_stats.get('stability', 0):.1f}%\n"
-                    report += f"  Историческая точность: {hist_stats.get('historical_correct', 0)}/{hist_stats.get('historical_total', 0)} ({hist_stats.get('historical_accuracy', 0)*100:.1f}%)"
-                    report += f" | 🔥 Последние 10: {hist_stats.get('recent_correct', 0)}/10 ({hist_stats.get('recent_accuracy', 0)*100:.1f}%)\n"
-                else:
-                    report += "\n"
-                
-            report += "\n"
+        # Форматируем отчет через форматтер
+        report = self.forecast_formatter.format_daily_forecasts_regular(forecasts_data, target_date)
         
         # Сохраняем отчет
         save_conformal_report(report, 'regular', target_date)
@@ -330,41 +298,8 @@ class StatisticsPublisher:
             forecasts_data: Список прогнозов с информацией о матчах
             target_date: Дата для файла
         """
-        from db.storage.publisher import save_conformal_report
-        
-        report = f"🌟 КАЧЕСТВЕННЫЕ ПРОГНОЗЫ - {target_date.strftime('%d.%m.%Y')}\n\n"
-        
-        for item in forecasts_data:
-            match = item['match']
-            forecasts = item['forecasts']
-            
-            report += f"🏆 {match.get('sportName', 'Unknown')} - {match.get('championshipName', 'Unknown')}\n"
-            report += f"🆔 Match ID: {match['id']}\n"
-            report += f"⚽ {match.get('team_home_name', 'Unknown')} vs {match.get('team_away_name', 'Unknown')}\n"
-            report += f"🕐 {match.get('gameData', '').strftime('%H:%M') if match.get('gameData') else 'TBD'}\n\n"
-            report += f"📊 ДЕТАЛЬНАЯ СТАТИСТИКА ПРОГНОЗА:\n\n"
-            
-            for stat in forecasts:
-                forecast_type = stat.get('forecast_type', '')
-                forecast_subtype = stat.get('forecast_subtype', '')
-                accuracy = stat.get('prediction_accuracy', 0) * 100 if stat.get('prediction_accuracy') else 0
-                
-                # Получаем расширенную статистику
-                hist_stats = self._get_historical_statistics(forecast_type, forecast_subtype)
-                
-                report += f"• {forecast_type}: {forecast_subtype}\n"
-                report += f"  🎯 Вероятность: {accuracy:.1f}%"
-                
-                if hist_stats:
-                    report += f" | 🔒 Уверенность: {hist_stats.get('confidence', 0):.1f}% | 📊 Неопределенность: {hist_stats.get('uncertainty', 0):.1f}%\n"
-                    report += f"  📈 Границы: [{hist_stats.get('lower_bound', 0):.2f} - {hist_stats.get('upper_bound', 0):.2f}]"
-                    report += f" | ⚖️ Калибровка: {hist_stats.get('calibration', 0):.1f}% | 🛡️ Стабильность: {hist_stats.get('stability', 0):.1f}%\n"
-                    report += f"  Историческая точность: {hist_stats.get('historical_correct', 0)}/{hist_stats.get('historical_total', 0)} ({hist_stats.get('historical_accuracy', 0)*100:.1f}%)"
-                    report += f" | 🔥 Последние 10: {hist_stats.get('recent_correct', 0)}/10 ({hist_stats.get('recent_accuracy', 0)*100:.1f}%)\n"
-                else:
-                    report += "\n"
-                
-            report += "\n"
+        # Форматируем отчет через форматтер
+        report = self.forecast_formatter.format_daily_forecasts_quality(forecasts_data, target_date)
         
         # Сохраняем отчет
         save_conformal_report(report, 'quality', target_date)
@@ -378,24 +313,28 @@ class StatisticsPublisher:
             outcomes_data: Список итогов с информацией о матчах
             target_date: Дата для файла
         """
-        from db.storage.publisher import save_conformal_report
-        
         report = f"🏁 ИТОГИ МАТЧЕЙ - {target_date.strftime('%d.%m.%Y')}\n\n"
         
         for item in outcomes_data:
             match = item['match']
             outcomes = item['outcomes']
             
+            # Сортируем outcomes по заданному порядку
+            sorted_outcomes = sorted(outcomes, key=lambda x: get_feature_sort_order(x.get('feature', 0)))
+            
             home_goals = match.get('numOfHeadsHome', 'N/A')
             away_goals = match.get('numOfHeadsAway', 'N/A')
+            
+            # Форматируем тип окончания матча
+            result_type = self._format_match_result_type(match.get('typeOutcome'))
             
             report += f"🆔 Match ID: {match['id']}\n"
             report += f"🏆 {match.get('sportName', 'Unknown')} - {match.get('championshipName', 'Unknown')}\n"
             report += f"⚽ {match.get('team_home_name', 'Unknown')} vs {match.get('team_away_name', 'Unknown')}\n"
-            report += f"📊 Результат: {home_goals}:{away_goals}\n"
+            report += f"📊 Результат: {home_goals}:{away_goals}{result_type}\n"
             report += f"🕐 {match.get('gameData', '').strftime('%H:%M') if match.get('gameData') else 'TBD'}\n"
             
-            for outcome in outcomes:
+            for outcome in sorted_outcomes:
                 feature = outcome.get('feature', 0)
                 outcome_value = outcome.get('outcome', '')
                 forecast_value = outcome.get('forecast', '')
@@ -405,22 +344,25 @@ class StatisticsPublisher:
                 lower_bound = outcome.get('lower_bound', 0)
                 upper_bound = outcome.get('upper_bound', 0)
                 
-                # Получаем расширенную статистику
-                hist_stats = self._get_extended_statistics_for_feature(feature)
+                # Получаем расширенную статистику с учетом реального outcome (а не forecast)
+                # outcome_value - это фактический результат прогноза из таблицы outcomes
+                hist_stats = self._get_extended_statistics_for_feature(feature, outcome_value)
                 
                 # Определяем правильность прогноза
-                status = self._determine_prediction_status(feature, forecast_value, match['id'])
+                # Используем outcome_value (категория), а не forecast_value (вероятность)
+                status = self._determine_prediction_status(feature, outcome_value, match['id'])
                 
                 feature_desc = self._get_feature_description_from_outcome(feature, outcome_value)
                 
-                report += f"{status} • {feature_desc}: {outcome_value}\n"
+                # Убрали дублирование outcome_value - оно уже включено в feature_desc
+                report += f"{status} • {feature_desc}\n"
                 report += f"  Прогноз: {forecast_value} | 🎯 Вероятность: {probability:.1f}% | 🔒 Уверенность: {confidence:.1f}% | 📊 Неопределенность: {uncertainty:.1f}%\n"
                 report += f"  📈 Границы: [{lower_bound:.2f} - {upper_bound:.2f}]"
                 
                 if hist_stats:
                     report += f" | ⚖️ Калибровка: {hist_stats.get('calibration', 0):.1f}% | 🛡️ Стабильность: {hist_stats.get('stability', 0):.1f}%\n"
                     
-                    acc_mark = "✅" if hist_stats.get('historical_accuracy', 0) >= 0.7 else "❌"
+                    acc_mark = "📊" if hist_stats.get('historical_accuracy', 0) >= 0.7 else "📉"
                     report += f"  {acc_mark} Историческая точность: {hist_stats.get('historical_correct', 0)}/{hist_stats.get('historical_total', 0)} ({hist_stats.get('historical_accuracy', 0)*100:.1f}%)"
                     
                     recent_mark = "🔥" if hist_stats.get('recent_accuracy', 0) >= 0.7 else "❄️"
@@ -442,24 +384,28 @@ class StatisticsPublisher:
             outcomes_data: Список итогов с информацией о матчах
             target_date: Дата для файла
         """
-        from db.storage.publisher import save_conformal_report
-        
         report = f"🏁 КАЧЕСТВЕННЫЕ ИТОГИ МАТЧЕЙ - {target_date.strftime('%d.%m.%Y')}\n\n"
         
         for item in outcomes_data:
             match = item['match']
             outcomes = item['outcomes']
             
+            # Сортируем outcomes по заданному порядку (по forecast_type для quality)
+            sorted_outcomes = sorted(outcomes, key=lambda x: get_forecast_type_sort_order(x.get('forecast_type', '')))
+            
             home_goals = match.get('numOfHeadsHome', 'N/A')
             away_goals = match.get('numOfHeadsAway', 'N/A')
+            
+            # Форматируем тип окончания матча
+            result_type = self._format_match_result_type(match.get('typeOutcome'))
             
             report += f"🆔 Match ID: {match['id']}\n"
             report += f"🏆 {match.get('sportName', 'Unknown')} - {match.get('championshipName', 'Unknown')}\n"
             report += f"⚽ {match.get('team_home_name', 'Unknown')} vs {match.get('team_away_name', 'Unknown')}\n"
-            report += f"📊 Результат: {home_goals}:{away_goals}\n"
+            report += f"📊 Результат: {home_goals}:{away_goals}{result_type}\n"
             report += f"🕐 {match.get('gameData', '').strftime('%H:%M') if match.get('gameData') else 'TBD'}\n"
             
-            for stat in outcomes:
+            for stat in sorted_outcomes:
                 forecast_type = stat.get('forecast_type', '')
                 forecast_subtype = stat.get('forecast_subtype', '')
                 actual_result = stat.get('actual_result', '')
@@ -469,17 +415,20 @@ class StatisticsPublisher:
                 # Получаем расширенную статистику
                 hist_stats = self._get_historical_statistics(forecast_type, forecast_subtype)
                 
+                # Определяем статус (иконка показывает правильность прогноза)
                 status = "✅" if prediction_correct else "❌"
                 
-                report += f"• {forecast_type}: {forecast_subtype}: {actual_result}\n"
-                report += f"  {status} 🎯 Вероятность: {accuracy:.1f}%"
+                # Убрали дублирование: result_icon больше не нужен
+                # Статус показывается один раз в начале строки
+                report += f"{status} • {forecast_type}: {forecast_subtype}\n"
+                report += f"  🎯 Вероятность: {accuracy:.1f}%"
                 
                 if hist_stats:
                     report += f" | 🔒 Уверенность: {hist_stats.get('confidence', 0):.1f}% | 📊 Неопределенность: {hist_stats.get('uncertainty', 0):.1f}%\n"
                     report += f"  📈 Границы: [{hist_stats.get('lower_bound', 0):.2f} - {hist_stats.get('upper_bound', 0):.2f}]"
                     report += f" | ⚖️ Калибровка: {hist_stats.get('calibration', 0):.1f}% | 🛡️ Стабильность: {hist_stats.get('stability', 0):.1f}%\n"
                     
-                    acc_mark = "✅" if hist_stats.get('historical_accuracy', 0) >= 0.7 else "❌"
+                    acc_mark = "📊" if hist_stats.get('historical_accuracy', 0) >= 0.7 else "📉"
                     report += f"  {acc_mark} Историческая точность: {hist_stats.get('historical_correct', 0)}/{hist_stats.get('historical_total', 0)} ({hist_stats.get('historical_accuracy', 0)*100:.1f}%)"
                     
                     recent_mark = "🔥" if hist_stats.get('recent_accuracy', 0) >= 0.7 else "❄️"
@@ -493,29 +442,103 @@ class StatisticsPublisher:
         save_conformal_report(report, 'quality_outcome', target_date)
         logger.info(f'Quality итоги за {target_date} сохранены в файл')
     
-    def _get_extended_statistics_for_feature(self, feature: int) -> Dict[str, Any]:
+    def _get_extended_statistics_for_feature(self, feature: int, outcome: str = '') -> Dict[str, Any]:
         """
-        Получает расширенную статистику из таблицы predictions для feature.
+        Получает расширенную статистику из БД для feature с учетом outcome.
         
         Args:
-            feature: Код feature
+            feature: Код feature (1-10)
+            outcome: Значение прогноза (например, 'п1', 'тб', 'обе забьют - да')
             
         Returns:
-            Dict: Словарь с расширенной статистикой
+            Dict: Словарь с расширенной статистикой из реальных данных БД
         """
-        # Заглушка - нужно реализовать запрос к predictions
+        try:
+            # Маппинг feature -> forecast_type
+            feature_types = {
+                1: 'WIN_DRAW_LOSS',
+                2: 'OZ',
+                3: 'GOAL_HOME',
+                4: 'GOAL_AWAY',
+                5: 'TOTAL',
+                6: 'TOTAL_HOME',
+                7: 'TOTAL_AWAY',
+                8: 'TOTAL_AMOUNT',
+                9: 'TOTAL_HOME_AMOUNT',
+                10: 'TOTAL_AWAY_AMOUNT'
+            }
+            
+            forecast_type = feature_types.get(feature, 'Unknown')
+            
+            if forecast_type == 'Unknown':
+                logger.warning(f'Неизвестный feature: {feature}')
+                return self._get_empty_statistics()
+            
+            # Нормализуем outcome для использования в БД
+            # forecast_type должен быть в lowercase
+            # forecast_subtype нормализуется через _normalize_forecast_subtype в get_complete_statistics
+            # Преобразуем в строку, т.к. outcome может быть числом (float) для регрессионных моделей
+            forecast_subtype = str(outcome).strip() if outcome else ''
+            
+            # Получаем статистику для конкретного типа и подтипа прогноза
+            # forecast_type передаем как есть (функция сама нормализует)
+            stats = get_complete_statistics(forecast_type, forecast_subtype)
+            
+            # Преобразуем в формат, совместимый со старым кодом
+            return {
+                'calibration': stats.get('calibration', 0.75) * 100,  # В процентах
+                'stability': stats.get('stability', 0.80) * 100,       # В процентах
+                'confidence': stats.get('confidence', 0.75) * 100,     # В процентах
+                'uncertainty': stats.get('uncertainty', 0.25) * 100,   # В процентах
+                'lower_bound': stats.get('lower_bound', 0.5),
+                'upper_bound': stats.get('upper_bound', 0.9),
+                'historical_correct': stats.get('historical_correct', 0),
+                'historical_total': stats.get('historical_total', 0),
+                'historical_accuracy': stats.get('historical_accuracy', 0.0),
+                'recent_correct': stats.get('recent_correct', 0),
+                'recent_accuracy': stats.get('recent_accuracy', 0.0)
+            }
+            
+        except Exception as e:
+            logger.error(f'Ошибка при получении расширенной статистики для feature {feature}: {e}')
+            return self._get_empty_statistics()
+    
+    def _format_match_result_type(self, type_outcome: Optional[str]) -> str:
+        """
+        Форматирует тип окончания матча.
+        
+        Args:
+            type_outcome: Тип окончания (ot, ap, или None)
+            
+        Returns:
+            str: Форматированная строка
+        """
+        if not type_outcome:
+            return ""
+        
+        type_mapping = {
+            'ot': ' (Овертайм)',
+            'ap': ' (Пенальти)',
+            'so': ' (Буллиты)',
+            'et': ' (Доп. время)',
+        }
+        
+        return type_mapping.get(type_outcome.lower(), f' ({type_outcome.upper()})')
+    
+    def _get_empty_statistics(self) -> Dict[str, Any]:
+        """Возвращает пустую статистику при отсутствии данных."""
         return {
-            'calibration': 80.0,
-            'stability': 85.0,
-            'confidence': 50.0,
-            'uncertainty': 50.0,
-            'lower_bound': 0.4,
-            'upper_bound': 0.6,
-            'historical_correct': 10,
-            'historical_total': 15,
-            'historical_accuracy': 0.667,
-            'recent_correct': 5,
-            'recent_accuracy': 0.5
+            'calibration': 75.0,
+            'stability': 80.0,
+            'confidence': 75.0,
+            'uncertainty': 25.0,
+            'lower_bound': 0.5,
+            'upper_bound': 0.9,
+            'historical_correct': 0,
+            'historical_total': 0,
+            'historical_accuracy': 0.0,
+            'recent_correct': 0,
+            'recent_accuracy': 0.0
         }
 
     def publish_today_forecasts(self) -> Dict[str, str]:
@@ -1204,7 +1227,6 @@ class StatisticsPublisher:
         try:
             logger.info('Публикация итогов по дням с разделением на качественные и обычные')
             
-            from datetime import datetime
             today = datetime.now().date()
             
             # Обрабатываем качественные итоги (только прошедшие матчи)
@@ -2719,7 +2741,7 @@ class StatisticsPublisher:
                     lower_bound = stat_row.get('lower_bound', 0)
                     upper_bound = stat_row.get('upper_bound', 0)
                     
-                    # Форматируем описание прогноза
+                    # Форматируем описание прогноза с итоговым прогнозом
                     forecast_description = f'{forecast_type.upper()}: {forecast_subtype}'
                     
                     # Статус прогноза
@@ -2728,11 +2750,16 @@ class StatisticsPublisher:
                     # Получаем историческую статистику для quality прогнозов
                     historical_stats = self._get_historical_statistics(forecast_type, forecast_subtype)
                     
-                    # Расширенная статистика
-                    report += f'{status_icon} • {forecast_description}: {actual_value}\n'
+                    # Расширенная статистика - выводим forecast_subtype как итоговый прогноз
+                    report += f'{status_icon} • {forecast_description}\n'
                     report += f'  🎯 Вероятность: {probability:.1%} | 🔒 Уверенность: {confidence:.1%} | 📊 Неопределенность: {uncertainty:.1%}\n'
                     report += f'  📈 Границы: [{lower_bound:.2f} - {upper_bound:.2f}] | ⚖️ Калибровка: {historical_stats["calibration"]:.1%} | 🛡️ Стабильность: {historical_stats["stability"]:.1%}\n'
-                    report += f'  Историческая точность: {historical_stats["historical_accuracy"]} | 🔥 Последние 10: {historical_stats["recent_accuracy"]}\n'
+                    
+                    # Форматируем историческую точность с иконками
+                    acc_mark = "📊" if historical_stats.get('historical_accuracy', 0) >= 0.7 else "📉"
+                    recent_mark = "🔥" if historical_stats.get('recent_accuracy', 0) >= 0.7 else "❄️"
+                    report += f'  {acc_mark} Историческая точность: {historical_stats["historical_correct"]}/{historical_stats["historical_total"]} ({historical_stats["historical_accuracy"]*100:.1f}%)'
+                    report += f' | {recent_mark} Последние 10: {historical_stats["recent_correct"]}/10 ({historical_stats["recent_accuracy"]*100:.1f}%)\n'
                 
                 report += '\n'
             
@@ -2880,8 +2907,11 @@ class StatisticsPublisher:
                     elif 'ит2м' in outcome_lower or 'меньше' in outcome_lower:
                         return (forecast_type, 'МЕНЬШЕ')
                 
-                # Для регрессионных прогнозов (8, 9, 10) - возвращаем как есть
+                # Для регрессионных прогнозов (8, 9, 10) - возвращаем как есть в UPPERCASE для отображения
+                # НО для получения статистики нужно использовать lowercase версию
                 elif feature in [8, 9, 10]:
+                    # Для регрессионных моделей нужно преобразовать outcome в категорию
+                    # если это числовое значение (уже должно быть преобразовано в БД)
                     return (forecast_type, outcome.upper())
             
             # Если не удалось определить подтип, возвращаем базовый тип
@@ -2947,9 +2977,6 @@ class StatisticsPublisher:
             Optional[Dict[str, float]]: Словарь с данными регрессии или None
         """
         try:
-            from db.models.prediction import Prediction
-            from config import Session_pool
-            
             with Session_pool() as session:
                 prediction = session.query(Prediction).filter(Prediction.match_id == match_id).first()
                 if prediction:
@@ -2976,9 +3003,6 @@ class StatisticsPublisher:
             str: ✅, ❌ или ⏳ (если матч еще не состоялся)
         """
         try:
-            from core.prediction_validator import get_prediction_status_from_target
-            from db.queries.target import get_target_by_match_id
-            
             target = get_target_by_match_id(match_id)
             return get_prediction_status_from_target(feature, outcome, target)
             
@@ -2988,98 +3012,35 @@ class StatisticsPublisher:
 
     def _get_historical_statistics(self, forecast_type: str, forecast_subtype: str) -> Dict[str, Any]:
         """
-        Получает историческую статистику для типа прогноза.
+        Получает историческую статистику для типа прогноза из БД.
         
         Args:
             forecast_type: Тип прогноза
             forecast_subtype: Подтип прогноза
             
         Returns:
-            Dict[str, Any]: Словарь с исторической статистикой
+            Dict[str, Any]: Словарь с исторической статистикой из реальных данных БД
         """
         try:
-            # В реальной реализации здесь должен быть запрос к БД
-            # Пока используем заглушки с реалистичными данными
-            
-            # Базовая статистика для разных типов прогнозов
-            base_stats = {
-                'win_draw_loss': {
-                    'calibration': 0.82,
-                    'stability': 0.91,
-                    'historical_accuracy': '15/20 (75.0%)',
-                    'recent_accuracy': '8/10 (80.0%)'
-                },
-                'oz': {
-                    'calibration': 0.79,
-                    'stability': 0.88,
-                    'historical_accuracy': '12/18 (66.7%)',
-                    'recent_accuracy': '6/10 (60.0%)'
-                },
-                'goal_home': {
-                    'calibration': 0.85,
-                    'stability': 0.89,
-                    'historical_accuracy': '14/20 (70.0%)',
-                    'recent_accuracy': '7/10 (70.0%)'
-                },
-                'goal_away': {
-                    'calibration': 0.83,
-                    'stability': 0.87,
-                    'historical_accuracy': '13/19 (68.4%)',
-                    'recent_accuracy': '6/10 (60.0%)'
-                },
-                'total': {
-                    'calibration': 0.81,
-                    'stability': 0.90,
-                    'historical_accuracy': '16/22 (72.7%)',
-                    'recent_accuracy': '8/10 (80.0%)'
-                },
-                'total_home': {
-                    'calibration': 0.84,
-                    'stability': 0.88,
-                    'historical_accuracy': '15/21 (71.4%)',
-                    'recent_accuracy': '7/10 (70.0%)'
-                },
-                'total_away': {
-                    'calibration': 0.80,
-                    'stability': 0.86,
-                    'historical_accuracy': '14/20 (70.0%)',
-                    'recent_accuracy': '6/10 (60.0%)'
-                },
-                'total_amount': {
-                    'calibration': 0.87,
-                    'stability': 0.92,
-                    'historical_accuracy': '18/25 (72.0%)',
-                    'recent_accuracy': '9/10 (90.0%)'
-                },
-                'total_home_amount': {
-                    'calibration': 0.85,
-                    'stability': 0.89,
-                    'historical_accuracy': '17/24 (70.8%)',
-                    'recent_accuracy': '8/10 (80.0%)'
-                },
-                'total_away_amount': {
-                    'calibration': 0.83,
-                    'stability': 0.87,
-                    'historical_accuracy': '16/23 (69.6%)',
-                    'recent_accuracy': '7/10 (70.0%)'
-                }
-            }
-            
-            # Возвращаем статистику для конкретного типа или дефолтную
-            return base_stats.get(forecast_type, {
-                'calibration': 0.80,
-                'stability': 0.85,
-                'historical_accuracy': '10/15 (66.7%)',
-                'recent_accuracy': '5/10 (50.0%)'
-            })
+            # Получаем реальную статистику из БД
+            stats = get_complete_statistics(forecast_type, forecast_subtype)
+            return stats
             
         except Exception as e:
-            logger.error(f'Ошибка при получении исторической статистики: {e}')
+            logger.error(f'Ошибка при получении исторической статистики из БД: {e}')
+            # Возвращаем минимальные значения при ошибке
             return {
                 'calibration': 0.75,
                 'stability': 0.80,
-                'historical_accuracy': '8/12 (66.7%)',
-                'recent_accuracy': '4/10 (40.0%)'
+                'confidence': 0.78,
+                'uncertainty': 0.22,
+                'lower_bound': 0.50,
+                'upper_bound': 0.80,
+                'historical_correct': 0,
+                'historical_total': 0,
+                'historical_accuracy': 0.0,
+                'recent_correct': 0,
+                'recent_accuracy': 0.0
             }
 
     def _calculate_match_quality(self, match_group: pd.DataFrame) -> float:
@@ -3194,102 +3155,35 @@ class StatisticsPublisher:
             Dict[str, Any]: Словарь с исторической статистикой
         """
         try:
-            # Статистика для разных типов и подтипов прогнозов
-            forecast_stats = {
-                ('WIN_DRAW_LOSS', 'П1'): {
-                    'calibration': 0.82,
-                    'stability': 0.91,
-                    'historical_accuracy': '15/20 (75.0%)',
-                    'recent_accuracy': '8/10 (80.0%)'
-                },
-                ('WIN_DRAW_LOSS', 'X'): {
-                    'calibration': 0.78,
-                    'stability': 0.88,
-                    'historical_accuracy': '12/18 (66.7%)',
-                    'recent_accuracy': '6/10 (60.0%)'
-                },
-                ('WIN_DRAW_LOSS', 'П2'): {
-                    'calibration': 0.80,
-                    'stability': 0.89,
-                    'historical_accuracy': '14/20 (70.0%)',
-                    'recent_accuracy': '7/10 (70.0%)'
-                },
-                ('OZ', 'ДА'): {
-                    'calibration': 0.79,
-                    'stability': 0.88,
-                    'historical_accuracy': '12/18 (66.7%)',
-                    'recent_accuracy': '6/10 (60.0%)'
-                },
-                ('OZ', 'НЕТ'): {
-                    'calibration': 0.81,
-                    'stability': 0.90,
-                    'historical_accuracy': '16/22 (72.7%)',
-                    'recent_accuracy': '8/10 (80.0%)'
-                },
-                ('TOTAL', 'ТБ'): {
-                    'calibration': 0.85,
-                    'stability': 0.89,
-                    'historical_accuracy': '14/20 (70.0%)',
-                    'recent_accuracy': '7/10 (70.0%)'
-                },
-                ('TOTAL', 'ТМ'): {
-                    'calibration': 0.83,
-                    'stability': 0.87,
-                    'historical_accuracy': '13/19 (68.4%)',
-                    'recent_accuracy': '6/10 (60.0%)'
-                },
-                ('TOTAL_HOME', 'ИТ1Б'): {
-                    'calibration': 0.87,
-                    'stability': 0.92,
-                    'historical_accuracy': '18/25 (72.0%)',
-                    'recent_accuracy': '9/10 (90.0%)'
-                },
-                ('TOTAL_HOME', 'ИТ1М'): {
-                    'calibration': 0.85,
-                    'stability': 0.89,
-                    'historical_accuracy': '17/24 (70.8%)',
-                    'recent_accuracy': '8/10 (80.0%)'
-                },
-                ('TOTAL_AWAY', 'ИТ2Б'): {
-                    'calibration': 0.83,
-                    'stability': 0.87,
-                    'historical_accuracy': '16/23 (69.6%)',
-                    'recent_accuracy': '7/10 (70.0%)'
-                },
-                ('TOTAL_AWAY', 'ИТ2М'): {
-                    'calibration': 0.88,
-                    'stability': 0.93,
-                    'historical_accuracy': '19/26 (73.1%)',
-                    'recent_accuracy': '9/10 (90.0%)'
-                }
+            # Получаем реальные данные из БД
+            hist = get_historical_accuracy_regular(forecast_type, forecast_subtype)
+            recent = get_recent_accuracy(forecast_type, forecast_subtype, limit=10)
+            calibration = get_calibration(forecast_type, forecast_subtype)
+            stability = get_stability(forecast_type, forecast_subtype)
+            bounds = get_confidence_bounds(forecast_type, forecast_subtype)
+            
+            return {
+                'calibration': calibration,
+                'stability': stability,
+                'confidence': bounds['confidence'],
+                'uncertainty': bounds['uncertainty'],
+                'lower_bound': bounds['lower_bound'],
+                'upper_bound': bounds['upper_bound'],
+                'historical_accuracy': hist['formatted'],
+                'recent_accuracy': recent['formatted']
             }
             
-            # Получаем статистику для конкретного типа и подтипа прогноза
-            key = (forecast_type, forecast_subtype)
-            stats = forecast_stats.get(key, {
-                'calibration': 0.80,
-                'stability': 0.85,
-                'historical_accuracy': '10/15 (66.7%)',
-                'recent_accuracy': '5/10 (50.0%)'
-            })
-            
-            # Добавляем дополнительные метрики
-            stats.update({
-                'confidence': 0.85,
-                'uncertainty': 0.15,
-                'lower_bound': 0.70,
-                'upper_bound': 1.00
-            })
-            
-            return stats
-            
         except Exception as e:
-            logger.error(f'Ошибка при получении исторической статистики для {forecast_type}/{forecast_subtype}: {e}')
+            logger.error(f'Ошибка при получении исторической статистики для {forecast_type}/{forecast_subtype} из БД: {e}')
             return {
                 'calibration': 0.75,
                 'stability': 0.80,
-                'historical_accuracy': '8/12 (66.7%)',
-                'recent_accuracy': '4/10 (40.0%)'
+                'confidence': 0.78,
+                'uncertainty': 0.22,
+                'lower_bound': 0.50,
+                'upper_bound': 0.90,
+                'historical_accuracy': '0/0 (0.0%)',
+                'recent_accuracy': '0/10 (0.0%)'
             }
 
     def _calculate_match_quality_regular(self, match_group: pd.DataFrame) -> float:
@@ -3397,9 +3291,9 @@ class StatisticsPublisher:
             total_count = len(df_day)
             
             for _, row in df_day.iterrows():
-                feature = row.get('feature', 0)
-                outcome = row.get('outcome', '')
-                match_id = row.get('match_id', row.get('id', 0))
+                feature = row.get('feature', default=0)
+                outcome = row.get('outcome', default='')
+                match_id = row.get('match_id', row.get('id', default=0))
                 
                 # Определяем правильность прогноза
                 status = self._determine_prediction_status(feature, outcome, match_id)

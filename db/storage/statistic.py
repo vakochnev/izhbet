@@ -32,6 +32,10 @@ def _is_quality_outcome(forecast_type: str, probability: Optional[float], confid
         'total': {'min_probability': 0.0, 'min_confidence': 0.0},
         'total_home': {'min_probability': 0.0, 'min_confidence': 0.0},
         'total_away': {'min_probability': 0.0, 'min_confidence': 0.0},
+        # Добавляем регрессионные модели
+        'total_amount': {'min_probability': 0.0, 'min_confidence': 0.0},
+        'total_home_amount': {'min_probability': 0.0, 'min_confidence': 0.0},
+        'total_away_amount': {'min_probability': 0.0, 'min_confidence': 0.0},
     }
     
     cfg = quality_thresholds.get(forecast_type)
@@ -177,7 +181,28 @@ def integrate_outcome_to_statistics(db_session: Session, outcome: Outcome) -> bo
         
         # Определяем тип прогноза
         forecast_type, model_type = _map_feature_to_type_and_model(outcome.feature)
-        forecast_subtype = outcome.outcome or 'unknown'
+        
+        # Для регрессионных моделей преобразуем числовое значение в категорию
+        if model_type == 'regression' and outcome.outcome:
+            try:
+                forecast_value = float(outcome.outcome)
+                # Определяем пороговое значение в зависимости от типа спорта
+                if forecast_type == 'total_amount':
+                    threshold = 2.5 if sport.name == 'Soccer' else 4.5
+                    forecast_subtype = 'тб' if forecast_value > threshold else 'тм'
+                elif forecast_type == 'total_home_amount':
+                    threshold = 1.5 if sport.name == 'Soccer' else 2.5
+                    forecast_subtype = 'ит1б' if forecast_value > threshold else 'ит1м'
+                elif forecast_type == 'total_away_amount':
+                    threshold = 1.5 if sport.name == 'Soccer' else 2.5
+                    forecast_subtype = 'ит2б' if forecast_value > threshold else 'ит2м'
+                else:
+                    forecast_subtype = outcome.outcome or 'unknown'
+            except (ValueError, TypeError):
+                logger.warning(f"Не удалось преобразовать регрессионное значение: {outcome.outcome}")
+                forecast_subtype = outcome.outcome or 'unknown'
+        else:
+            forecast_subtype = outcome.outcome or 'unknown'
         
         # Вычисляем результат матча
         actual_result, actual_value = calculate_actual_result(match)
@@ -396,17 +421,27 @@ def update_match_results(match_id: int, goal_home: int, goal_away: int) -> bool:
                         
                         feature = forecast_type_to_feature.get(statistic.forecast_type)
                         if feature:
-                            target = get_target_by_match_id(match_id)
+                            # Получаем target из текущей сессии
+                            from db.models.target import Target
+                            target = db_session.query(Target).filter_by(match_id=match_id).first()
                             if target:
-                                is_success = is_prediction_correct_from_target(feature, outcome.outcome, target)
+                                # Используем forecast_subtype вместо outcome.outcome
+                                # т.к. для регрессионных моделей он уже преобразован в категорию
+                                is_success = is_prediction_correct_from_target(feature, statistic.forecast_subtype, target)
                             else:
+                                logger.warning(f"Target не найден для матча {match_id}")
                                 is_success = False
                         else:
+                            logger.warning(f"Неизвестный forecast_type: {statistic.forecast_type}")
                             is_success = False
                         
                         statistic.prediction_correct = is_success
                         statistic.actual_result = is_success  # boolean: True/False
                         statistic.prediction_accuracy = 1.0 if is_success else 0.0
+                    else:
+                        logger.warning(f"Outcome не найден для outcome_id={statistic.outcome_id}")
+                else:
+                    logger.warning(f"У statistic id={statistic.id} нет outcome_id")
             
             db_session.commit()
             

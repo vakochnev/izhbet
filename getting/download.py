@@ -8,7 +8,7 @@ import logging
 import abc
 from abc import ABC, abstractmethod
 from typing import Any, List, Dict, Optional, TypeVar, Generic
-from multiprocessing import JoinableQueue, Queue, cpu_count
+from multiprocessing import JoinableQueue, cpu_count
 
 from core.constants import OPERATIONS
 from db.queries.tournament import (
@@ -264,10 +264,13 @@ class MatchDataProcessing(DataProcessingTemplate):
 
     def save_data(self) -> None:
         """Сохранение данных о матчах."""
-        if self.matches:
-            self.match_handler.save_data(self.matches)
+        # Сначала сохраняем команды, так как матчи ссылаются на них
         if self.teams:
             self.team_handler.save_data(self.teams)
+        # Затем сохраняем матчи
+        if self.matches:
+            self.match_handler.save_data(self.matches)
+        # Голы и периоды зависят от матчей
         if self.goals:
             self.goal_handler.save_data(self.goals)
         if self.periods:
@@ -320,12 +323,10 @@ class GetSportRadar:
 
         # Новая версия
         tasks = JoinableQueue()
-        results = Queue()
 
-        number_consumers = cpu_count()
-        number_consumers = 10
+        number_consumers = 10 #cpu_count()
         consumers = [
-            Consumer(tasks, results)
+            Consumer(tasks, None)
                 for _ in range(number_consumers)
         ]
         for consumer in consumers:
@@ -338,10 +339,12 @@ class GetSportRadar:
             tasks.put(None)
 
         tasks.join()
-        # Вывод результатов обработки задач
-        # for _ in range(len(tournament_ids)):
-        #     temp_result = results.get()
-        #     logger.info(f'Результат: {temp_result}')
+        
+        # Ждем завершения всех потребителей
+        for consumer in consumers:
+            consumer.join()
+        
+        logger.info(f'Обработка {len(tournament_ids)} турниров завершена')
 
 
 class TournamentConsumer:

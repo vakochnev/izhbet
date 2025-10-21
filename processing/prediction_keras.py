@@ -38,28 +38,28 @@ def train_and_save_keras(
         logger.info("Начинаем train_and_save_keras")
         
         # Проверка и очистка данных
-        logger.info("Вызываем prepare_features_and_targets")
+        # logger.info("Вызываем prepare_features_and_targets")
         df_feature_cleaned, df_target_validated = prepare_features_and_targets(
             df_feature, df_target, feature_config
         )
-        logger.info(f"prepare_features_and_targets завершен: features={len(df_feature_cleaned)}, targets={len(df_target_validated)}")
+        # logger.info(f"prepare_features_and_targets завершен: features={len(df_feature_cleaned)}, targets={len(df_target_validated)}")
 
         # Проверка качества данных
-        logger.info("Создаем DataQualityMonitor")
+        # logger.info("Создаем DataQualityMonitor")
         data_quality_monitor = DataQualityMonitor()
-        logger.info("Объединяем DataFrame")
+        # logger.info("Объединяем DataFrame")
         df_combined = pd.concat([df_feature_cleaned, df_target_validated], axis=1)
-        logger.info("Проверяем качество данных")
+        # logger.info("Проверяем качество данных")
         quality_report = data_quality_monitor.check_data_quality(df_combined, 'training')
-        logger.info("Качество данных проверено")
+        # logger.info("Качество данных проверено")
 
-        logger.debug(
-            f"Качество тренировочных данных: "
-            f"{json.dumps(quality_report, indent=2, cls=NumpyEncoder)}"
-        )
+        # logger.debug(
+        #     f"Качество тренировочных данных: "
+        #     f"{json.dumps(quality_report, indent=2, cls=NumpyEncoder)}"
+        # )
 
         # Проверяем, что есть данные для обучения
-        logger.info(f"Проверяем количество данных: {len(df_feature_cleaned)} < {Config.MIN_SAMPLES_FOR_TRAINING}")
+        # logger.info(f"Проверяем количество данных: {len(df_feature_cleaned)} < {Config.MIN_SAMPLES_FOR_TRAINING}")
         if len(df_feature_cleaned) < Config.MIN_SAMPLES_FOR_TRAINING:
             logger.warning(
                 f"Слишком мало данных для обучения: "
@@ -68,15 +68,15 @@ def train_and_save_keras(
             return {}
 
         # Предобработка данных
-        logger.info("Создаем DataPreprocessor")
+        # logger.info("Создаем DataPreprocessor")
         preprocessor = DataPreprocessor(
             df_feature_cleaned,
             df_target_validated,
             feature_config
         )
-        logger.info("Вызываем preprocess_data")
+        # logger.info("Вызываем preprocess_data")
         processed_data = preprocessor.preprocess_data()
-        logger.info(f"preprocess_data завершен: {len(processed_data)} моделей")
+        # logger.info(f"preprocess_data завершен: {len(processed_data)} моделей")
 
         if not processed_data:
             logger.warning(
@@ -85,7 +85,7 @@ def train_and_save_keras(
             return {}
 
         trained_models = {}
-        logger.info("Создаем KerasModelManager")
+        # logger.info("Создаем KerasModelManager")
         model_manager = KerasModelManager(models_dir, feature_config)
 
         for model_name, model_data in processed_data.items():
@@ -103,7 +103,7 @@ def train_and_save_keras(
                 # Оценка качества на тестовых данных
                 logger.info(f"Делаем предсказания для {model_name}")
                 y_pred = model.predict(model_data.X_test, verbose=0)
-                logger.info(f"Предсказания для {model_name} готовы")
+                # logger.info(f"Предсказания для {model_name} готовы")
 
                 if model_data.task_type == 'classification':
                     y_pred_classes = np.argmax(y_pred, axis=1)
@@ -146,7 +146,7 @@ def train_and_save_keras(
         if trained_models:
             model_manager.save_models(models_dir, trained_models)
 
-        logger.info("train_and_save_keras завершен успешно")
+        # logger.info("train_and_save_keras завершен успешно")
         return trained_models
 
     except Exception as e:
@@ -266,7 +266,7 @@ def make_prediction_keras(
         Словарь с результатами прогнозов
     """
     # Проверяем соответствие колонок в df и feature_config
-    logger.info(f"Колонки в df: {list(df.columns)[:10]}...")
+    # logger.info(f"Колонки в df: {list(df.columns)[:10]}...")
     logger.info(f"Количество колонок в df: {len(df.columns)}")
     
     # Получаем все фичи из feature_config
@@ -275,7 +275,7 @@ def make_prediction_keras(
         all_features.update(config.features)
     
     logger.info(f"Фичи в feature_config: {len(all_features)}")
-    logger.debug(f"Первые 10 фичей из feature_config: {list(all_features)[:10]}")
+    # logger.debug(f"Первые 10 фичей из feature_config: {list(all_features)[:10]}")
     
     # Проверяем, какие фичи отсутствуют в df
     missing_features = all_features - set(df.columns)

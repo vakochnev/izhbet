@@ -1,3 +1,5 @@
+# izhbet/publisher/sending.py
+
 import os
 import logging
 from abc import ABC, abstractmethod

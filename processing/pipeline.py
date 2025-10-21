@@ -1,11 +1,11 @@
-# izhbet/processing/pipeline.py
+    # izhbet/processing/pipeline.py
 """
 Реализация паттерна Pipeline для обработки данных.
 """
 
 import logging
 from abc import ABC, abstractmethod
-from multiprocessing import JoinableQueue, Queue
+from multiprocessing import JoinableQueue
 from typing import Any, Dict, List, Optional
 import pandas as pd
 
@@ -76,12 +76,11 @@ class EmbeddingCalculationPipeline:
     def _process_tournaments_parallel(self, action: str) -> None:
         """Многопроцессорная обработка турниров."""
         tasks = JoinableQueue()
-        results = Queue()
 
         # Создание потребителей
         number_consumers = min(10, len(self.data_source.tournaments_id))
         consumers = [
-            Consumer(tasks, results) for _ in range(number_consumers)
+            Consumer(tasks, None) for _ in range(number_consumers)
         ]
 
         for consumer in consumers:
@@ -103,14 +102,12 @@ class EmbeddingCalculationPipeline:
             tasks.put(None)
 
         tasks.join()
-        self._process_results(results, len(self.data_source.tournaments_id))
-
-    def _process_results(self, results: Queue, total_tasks: int) -> None:
-        """Обработка результатов выполнения задач."""
-        for _ in range(total_tasks):
-            result = results.get()
-            if result is not None:
-                logger.error(f'Ошибка при обработке: {result}')
+        
+        # Ждем завершения всех потребителей
+        for consumer in consumers:
+            consumer.join()
+        
+        logger.info(f'Обработка {len(self.data_source.tournaments_id)} турниров завершена')
 
 
 class TournamentTask:
@@ -159,15 +156,16 @@ class TournamentTask:
                 if predictions and not self._is_create_model_action():
                     self.data_storage.save(db_session, predictions)
 
+                logger.info(f'Турнир {self.tournament_id} обработан успешно')
+
         except Exception as e:
             logger.error(
                 f'Ошибка при обработке турнира '
                 f'{self.tournament_id}: {e}'
             )
-            raise
 
+    @staticmethod
     def _get_championship_info(
-            self,
             df_match: pd.DataFrame,
             db_session: Any
     ) -> Dict[str, Any]:

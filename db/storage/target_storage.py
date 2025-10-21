@@ -35,7 +35,6 @@ class TargetStorage:
                 ).first()
                 
                 if existing_target:
-                    logger.debug(f"Обновление существующей записи для матча {target_data['match_id']}")
                     # Обновляем существующую запись
                     for key, value in target_data.items():
                         if hasattr(existing_target, key):
@@ -51,7 +50,6 @@ class TargetStorage:
                     logger.debug(f"Target обновлен для матча {target_data['match_id']}")
                     return result
                 else:
-                    logger.info(f"Создание новой записи target для матча {target_data['match_id']}")
                     # Создаем новую запись
                     target = Target(**target_data)
                     db_session.add(target)
@@ -63,7 +61,7 @@ class TargetStorage:
                         for key, value in target.__dict__.items()
                         if not key.startswith('_') and key not in ['query', 'metadata', 'matchs']
                     }
-                    logger.info(f"Target создан для матча {target_data['match_id']} с ID {result.get('id')}")
+                    logger.debug(f"Target создан для матча {target_data['match_id']} с ID {result.get('id')}")
                     return result
                     
         except IntegrityError as e:

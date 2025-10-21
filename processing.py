@@ -115,19 +115,11 @@ def _process_data(action: str) -> None:
         logger.info('Запуск обработки данных...')
         tournament_ids = pipeline.process_data(action)
         logger.info('Обработка данных завершена успешно')
-        
-        # Конформное прогнозирование перенесено в модуль forecast
-        
-        
+
     except Exception as e:
         logger.error(f'Ошибка при обработке данных: {e}')
         raise
 
-
-# Конформное прогнозирование перенесено в модуль forecast
-
-
-        
 
 if __name__ == '__main__':
     main()

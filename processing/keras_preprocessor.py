@@ -280,7 +280,8 @@ class DataPreprocessor:
             )
             return None, None, 0
 
-    def _is_onehot_encoded(self, target_data: pd.Series, model_name: str) -> bool:
+    @staticmethod
+    def _is_onehot_encoded(target_data: pd.Series, model_name: str) -> bool:
         """Проверяет, являются ли данные One-Hot encoded."""
         try:
             # Проверяем, содержит ли название модели индикаторы One-Hot encoding
@@ -314,8 +315,8 @@ class DataPreprocessor:
             logger.warning(f"Ошибка проверки One-Hot encoding для {model_name}: {e}")
             return False
 
+    @staticmethod
     def _split_data(
-        self,
         X: np.ndarray,
         y: np.ndarray,
         task_type: str,

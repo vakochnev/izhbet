@@ -5,7 +5,7 @@
 import os
 import logging
 import pandas as pd
-from multiprocessing import JoinableQueue, Queue, cpu_count
+from multiprocessing import JoinableQueue, cpu_count
 
 from db.queries.match import get_match_modeling
 from db.storage.calculation import (
@@ -117,11 +117,10 @@ class CalculationDataPipeline:
         tournaments = self.data_source.tournaments_id
 
         tasks = JoinableQueue()
-        results = Queue()
 
         number_consumers = cpu_count()
         consumers = [
-            Consumer(tasks, results)
+            Consumer(tasks, None)
                 for _ in range(number_consumers)
         ]
         for consumer in consumers:
@@ -141,11 +140,12 @@ class CalculationDataPipeline:
             tasks.put(None)
 
         tasks.join()
-
-        for _ in range(len(tournaments)):
-            temp_result = results.get()
-            if temp_result is not None:
-                logger.error(f'Ошибки при обработке: {temp_result}')
+        
+        # Ждем завершения всех потребителей
+        for consumer in consumers:
+            consumer.join()
+        
+        logger.info(f'Обработка {len(tournaments)} турниров завершена')
 
     def select_data(self, data: object) -> object:
         """
@@ -241,11 +241,11 @@ class DatabaseSource(DataSource):
                 ignore_index=True
             ).sort_values()
         )
-        #self.tournaments_id = self.df_tournament.to_list()
+        self.tournaments_id = self.df_tournament.to_list()
         #self.tournaments_id = [785]
         #self.tournaments_id = [714, 268, 1159, 844, 234, 2386] #[785, 826, 828] #[17, 18, 24, 25, 173]
-        self.tournaments_id = [17, 18, 24, 25, 173] #[17, 18, 24, 25, 173]
-        pass
+        #self.tournaments_id = [17, 18, 24, 25, 173] #[17, 18, 24, 25, 173]
+        #pass
 
 
 class CreatingStandings(DataProcessor):

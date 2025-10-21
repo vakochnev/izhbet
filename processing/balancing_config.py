@@ -108,9 +108,9 @@ class ProcessFeatures(DataProcessor):
                 else:
                     logger.error("Нет общих match_id между features и targets!")
                     return None
-        else:
-            # Для прогнозирования target данные не нужны
-            logger.info(f"Режим прогнозирования: используем {len(df)} записей features без target данных")
+        # else:
+        #     # Для прогнозирования target данные не нужны
+        #     logger.info(f"Режим прогнозирования: используем {len(df)} записей features без target данных")
 
         return self._process_features(df, df_target, models_dir)
 
@@ -133,13 +133,13 @@ class ProcessFeatures(DataProcessor):
         df_feature = prepare_features(df)
         
         # Создаем правильную конфигурацию фичей на основе объединенных данных из get_feature_match_ids
-        # Исключаем служебные поля и поля, которые не являются фичами
+        # Исcключаем служебные поля и поля, которые не являются фичами
         feature_columns = [col for col in df_feature.columns 
                           if col not in ['match_id', 'id', 'created_at', 'updated_at'] 
                           and not col.startswith('target_')]
         
         logger.info(f"Создание feature_config для {len(feature_columns)} фичей из объединенных данных")
-        logger.debug(f"Первые 10 колонок фичей: {feature_columns[:10]}")
+        # logger.debug(f"Первые 10 колонок фичей: {feature_columns[:10]}")
         
         feature_config = create_feature_config(feature_columns)
 

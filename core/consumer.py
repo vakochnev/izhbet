@@ -39,12 +39,16 @@ class Consumer(Process):
                 self.task_queue.task_done()
                 break
 
-            logger.info(
-                f'{self.name} обработка турнира: '
-                f'{next_task.tournament_id}'
-            )
-            # Вызываем метод execute() задачи
-            result = next_task.process()
-            self.task_queue.task_done()
-            self.result_queue.put(result)
+            try:
+                logger.info(
+                    f'{self.name} обработка турнира: '
+                    f'{next_task.tournament_id}'
+                )
+                # Вызываем метод process() задачи
+                next_task.process()
+            except Exception as e:
+                logger.error(f'Ошибка в процессе {self.name}: {e}')
+            finally:
+                # Гарантируем вызов task_done() даже при исключении
+                self.task_queue.task_done()
 

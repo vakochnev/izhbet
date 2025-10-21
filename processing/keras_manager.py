@@ -35,8 +35,8 @@ class KerasModelManager:
         self.feature_config = feature_config
         self.loaded_models = self.load_models(models_dir)
 
+    @staticmethod
     def save_models(
-            self,
             save_dir: str,
             models_data: Dict[str, Dict[str, Any]]
     ) -> None:
@@ -117,22 +117,16 @@ class KerasModelManager:
 
         return loaded_models
 
-    def _load_scaler(
-            self,
-            models_dir: str,
-            model_name: str
-    ) -> Any:
+    @staticmethod
+    def _load_scaler(models_dir: str, model_name: str) -> Any:
         """Загрузка скалера."""
         scaler_path = os.path.join(models_dir, f'{model_name}_scaler.joblib')
         if os.path.exists(scaler_path):
             return joblib.load(scaler_path)
         return get_scalers('standard')
 
-    def _load_label_encoder(
-            self,
-            models_dir: str,
-            model_name: str
-    ) -> Optional[Any]:
+    @staticmethod
+    def _load_label_encoder(models_dir: str, model_name: str) -> Optional[Any]:
         """Загрузка label encoder."""
         label_path = os.path.join(models_dir, f'{model_name}_label_encoder.joblib')
         if os.path.exists(label_path):
@@ -169,7 +163,8 @@ class KerasModelManager:
             logger.error(f'Ошибка предсказания моделью {model_name}: {e}')
             return {'error': str(e)}
 
-    def _prepare_input_features(self, input_features: np.ndarray) -> np.ndarray:
+    @staticmethod
+    def _prepare_input_features(input_features: np.ndarray) -> np.ndarray:
         """Подготовка входных признаков."""
         if not isinstance(input_features, np.ndarray):
             input_features = np.array(input_features)
@@ -179,8 +174,8 @@ class KerasModelManager:
 
         return input_features
 
+    @staticmethod
     def _process_prediction(
-            self,
             prediction: np.ndarray,
             model_data: Dict[str, Any]
     ) -> Dict[str, Any]:

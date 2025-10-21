@@ -405,16 +405,16 @@ class DataQualityMonitor:
                 'categorical_stats': {}
             }
             
-            logger.info("Вычисляем missing_values")
+            # logger.info("Вычисляем missing_values")
             quality_report['missing_values'] = self._convert_series_to_dict(df.isnull().sum())
             
-            logger.info("Вычисляем missing_percentage")
+            # logger.info("Вычисляем missing_percentage")
             quality_report['missing_percentage'] = self._convert_series_to_dict((df.isnull().sum() / len(df) * 100))
             
-            logger.info("Вычисляем duplicate_rows")
+            # logger.info("Вычисляем duplicate_rows")
             quality_report['duplicate_rows'] = int(df.duplicated().sum())
             
-            logger.info("Вычисляем data_types")
+            # logger.info("Вычисляем data_types")
             quality_report['data_types'] = self._convert_dtypes_to_string(df.dtypes)
             
         except Exception as e:
@@ -423,13 +423,13 @@ class DataQualityMonitor:
 
         # Статистика для числовых колонок
         try:
-            logger.info("Обрабатываем числовые колонки")
+            # logger.info("Обрабатываем числовые колонки")
             numeric_cols = df.select_dtypes(include=[np.number]).columns
             logger.info(f"Найдено {len(numeric_cols)} числовых колонок")
             
             for i, col in enumerate(numeric_cols):
-                if i % 100 == 0:  # Логируем каждые 100 колонок
-                    logger.info(f"Обрабатываем числовую колонку {i+1}/{len(numeric_cols)}: {col}")
+                # if i % 100 == 0:  # Логируем каждые 100 колонок
+                #     logger.info(f"Обрабатываем числовую колонку {i+1}/{len(numeric_cols)}: {col}")
                 
                 try:
                     col_series = df[col]
@@ -498,12 +498,12 @@ class DataQualityMonitor:
 
         # Статистика для категориальных колонок
         try:
-            logger.info("Обрабатываем категориальные колонки")
+            # logger.info("Обрабатываем категориальные колонки")
             categorical_cols = df.select_dtypes(include=['object']).columns
             logger.info(f"Найдено {len(categorical_cols)} категориальных колонок")
             
             for i, col in enumerate(categorical_cols):
-                logger.info(f"Обрабатываем категориальную колонку {i+1}/{len(categorical_cols)}: {col}")
+                # logger.info(f"Обрабатываем категориальную колонку {i+1}/{len(categorical_cols)}: {col}")
                 
                 try:
                     col_series = df[col]
@@ -527,7 +527,8 @@ class DataQualityMonitor:
 
         return quality_report
 
-    def _convert_series_to_dict(self, series: pd.Series) -> Dict:
+    @staticmethod
+    def _convert_series_to_dict(series: pd.Series) -> Dict:
         """Конвертирует Series в словарь с JSON-сериализуемыми значениями."""
         result = {}
         for key, value in series.items():
@@ -549,7 +550,8 @@ class DataQualityMonitor:
                 result[str(key)] = value
         return result
 
-    def _convert_dtypes_to_string(self, dtypes: pd.Series) -> Dict:
+    @staticmethod
+    def _convert_dtypes_to_string(dtypes: pd.Series) -> Dict:
         """Конвертирует dtypes в строки."""
         result = {}
         try:
@@ -561,7 +563,8 @@ class DataQualityMonitor:
             result = {}
         return result
 
-    def _check_anomalies(self, quality_report: Dict[str, Any]) -> None:
+    @staticmethod
+    def _check_anomalies(quality_report: Dict[str, Any]) -> None:
         """Проверка на аномалии в данных."""
         try:
             # Проверка на слишком много пропущенных значений

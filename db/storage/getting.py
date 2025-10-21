@@ -1,5 +1,7 @@
 import logging
 import datetime as dt
+import time
+from sqlalchemy.exc import OperationalError
 
 from config import DBSession, Session_pool
 from db.models.sport import Sport
@@ -29,6 +31,24 @@ from core.logger_message import MEASSGE_LOG
 
 
 logger = logging.getLogger(__name__)
+
+
+def retry_on_lock(func):
+    """Декоратор для повтора при блокировке БД."""
+    def wrapper(*args, **kwargs):
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except OperationalError as e:
+                if '1205' in str(e) and attempt < max_retries - 1:
+                    # Lock wait timeout - ждем и повторяем
+                    wait_time = (attempt + 1) * 0.5  # 0.5, 1.0, 1.5 секунд
+                    logger.warning(f'Блокировка БД, повтор через {wait_time}s (попытка {attempt + 1}/{max_retries})')
+                    time.sleep(wait_time)
+                else:
+                    raise
+    return wrapper
 
 
 def save_sport(self, data):
@@ -145,137 +165,280 @@ def save_championship(self, data_save):
 
 
 def save_match(self, data_save):
-    try:
+    batch_size = 50  # Размер пакета для коммита
+    processed = 0
+    
+    # Отключаем autoflush для избежания блокировок
+    with self.db_session._session.no_autoflush:
         for data in data_save:
-            match_record = get_match_id(
-                self.db_session,
-                match_id=data['id']
-            )
-            if match_record is None:
+            try:
+                # Не проверяем существование команд здесь, чтобы избежать autoflush
+                # Если команда не существует, получим ошибку FK при коммите
+                # Используем merge вместо проверки существования для избежания autoflush
                 match_record = Match(id=data['id'])
+                match_record.id = data['id']
+                match_record.sport_id = data['sId']
+                match_record.country_id = data['catId']
+                match_record.tournament_id = data['tId']
+                # match_record.gameData = datetime(1970, 1, 1) + timedelta(seconds=data_json['time'])
+                match_record.gameData = (
+                    dt.datetime.fromtimestamp(data['time'])
+                )
+                match_record.teamHome_id = data['homeId']
+                match_record.teamAway_id = data['awayId']
+                match_record.tour = data['round']['id'] if 'round' in data else 0
+                if 'home' in data['result'].keys():
+                    match_record.numOfHeadsHome = data['result']['home']
+                    match_record.numOfHeadsAway = data['result']['away']
 
-            match_record.id = data['id']
-            match_record.sport_id = data['sId']
-            match_record.country_id = data['catId']
-            match_record.tournament_id = data['tId']
-            # match_record.gameData = datetime(1970, 1, 1) + timedelta(seconds=data_json['time'])
-            match_record.gameData = (
-                dt.datetime.fromtimestamp(data['time'])
-            )
-            match_record.teamHome_id = data['homeId']
-            match_record.teamAway_id = data['awayId']
-            match_record.tour = data['round']['id'] if 'round' in data else 0
-            if 'home' in data['result'].keys():
-                match_record.numOfHeadsHome = data['result']['home']
-                match_record.numOfHeadsAway = data['result']['away']
+                if 'winner' in data['result'].keys():
+                    match_record.winner = data['result']['winner']
 
-            if 'winner' in data['result'].keys():
-                match_record.winner = data['result']['winner']
+                if data['result']['period'] != 'nt':
+                    match_record.typeOutcome = data['result']['period']
+                if 'comment' in data.keys():
+                    match_record.gameComment = data['comment']
+                match_record.isCanceled = data['isCanceled']
+                match_record.season_id = data['snId']
+                match_record.stages_id = data['stId']
 
-            if data['result']['period'] != 'nt':
-                match_record.typeOutcome = data['result']['period']
-            if 'comment' in data.keys():
-                match_record.gameComment = data['comment']
-            match_record.isCanceled = data['isCanceled']
-            match_record.season_id = data['snId']
-            match_record.stages_id = data['stId']
+                # merge автоматически обновит если существует, или вставит новую запись
+                self.db_session.update_model(match_record)
+                processed += 1
+                
+                # Коммитим пакетами
+                if processed % batch_size == 0:
+                    try:
+                        self.db_session.commit()
+                        logger.debug(f'Сохранено {processed} матчей')
+                    except Exception as commit_error:
+                        logger.warning(
+                            f'Ошибка при коммите пакета матчей (около {processed} записей): {commit_error}'
+                        )
+                        self.db_session.rollback()
 
-            self.db_session.add_model(match_record)
-            self.db_session.commit()
-
-            logger.debug(MEASSGE_LOG['saving_db_match'])
-
-    except Exception as e:
-        logger.critical(
-            f'Ошибка при сохранении данных в MATCH: {e}'
-        )
+            except Exception as e:
+                logger.critical(
+                    f'Ошибка при подготовке матча ID={data["id"]} '
+                    f'(teamHome_id={data["homeId"]}, teamAway_id={data["awayId"]}, '
+                    f'tournament_id={data["tId"]}): {e}'
+                )
+        
+        # Финальный коммит для оставшихся записей
+        if processed % batch_size != 0:
+            try:
+                self.db_session.commit()
+                logger.debug(f'Финальное сохранение: всего {processed} матчей')
+            except Exception as commit_error:
+                logger.warning(
+                    f'Ошибка при финальном коммите матчей: {commit_error}'
+                )
+                self.db_session.rollback()
 
 
 def save_team(self, data_save):
-    try:
+    batch_size = 100  # Размер пакета для коммита
+    processed = 0
+    
+    # Отключаем autoflush для избежания блокировок
+    with self.db_session._session.no_autoflush:
         for data in data_save:
-            team_record = (
-                get_team_id(self.db_session, data['id'])
-            )
-            if team_record is None:
+            try:
+                # Проверяем существование страны
+                country_id = data['catId']
+                country_exists = get_country_id(self.db_session, country_id)
+                
+                if country_exists is None:
+                    # Пропускаем команды с несуществующими странами
+                    # (вероятно расформированные команды/лиги)
+                    logger.warning(
+                        f'Команда ID={data["id"]} (name={data.get("name", "unknown")}) '
+                        f'пропущена: страна с ID={country_id} не найдена в БД. '
+                        f'Возможно, это расформированная команда или лига.'
+                    )
+                    continue
+                
+                # Используем merge вместо проверки существования для избежания autoflush
                 team_record = Team(id=data['id'])
+                team_record.sport_id = data['sId']
+                team_record.country_id = country_id
+                team_record.teamName = data['name']
 
-            team_record.sport_id = data['sId']
-            team_record.country_id = data['catId']
-            team_record.teamName = data['name']
+                # merge автоматически обновит если существует, или вставит новую запись
+                self.db_session.update_model(team_record)
+                processed += 1
+                
+                # Коммитим пакетами
+                if processed % batch_size == 0:
+                    self.db_session.commit()
+                    logger.debug(f'Сохранено {processed} команд')
 
-            self.db_session.add_model(team_record)
+            except Exception as e:
+                logger.critical(
+                    f'Ошибка при сохранении команды ID={data["id"]} '
+                    f'(name={data.get("name", "unknown")}, '
+                    f'country_id={data.get("catId", "unknown")}): {e}'
+                )
+                # Откатываем текущую транзакцию при ошибке
+                self.db_session.rollback()
+        
+        # Финальный коммит для оставшихся записей
+        if processed % batch_size != 0:
             self.db_session.commit()
-
-            logger.debug(MEASSGE_LOG['saving_db_team'])
-
-    except Exception as e:
-        logger.critical(
-            f'Ошибка при сохранении данных в TEAM: {e}'
-        )
+            logger.debug(f'Финальное сохранение: всего {processed} команд')
 
 
 def save_goal(self, data_save):
-    try:
+    batch_size = 50  # Уменьшили для снижения конкуренции
+    processed = 0
+    
+    # Отключаем autoflush для избежания блокировок
+    with self.db_session._session.no_autoflush:
         for data in data_save:
             for data_json in data:
-                if 'match_id' not in data_json.keys():
-                    continue
+                try:
+                    if 'match_id' not in data_json.keys():
+                        continue
 
-                record = (
-                    get_goal_id(self.db_session, data_json['match_id'])
-                )
-                if record is None:
-                    record = Goal(id=data_json['match_id'])
+                    # Проверяем существование в режиме no_autoflush
+                    # Ищем по уникальной комбинации: match_id + team_id + seconds
+                    record = (
+                        self.db_session.query(Goal)
+                        .filter(
+                            Goal.match_id == data_json['match_id'],
+                            Goal.team_id == data_json['team_id'],
+                            Goal.seconds == data_json['seconds']
+                        )
+                        .first()
+                    )
+                    
+                    if record is None:
+                        record = Goal()
+                        record.match_id = data_json['match_id']
+                        record.team_id = data_json['team_id']
+                        record.seconds = data_json['seconds']
+                    
+                    record.scorer = data_json['scorer']
 
-                record.match_id = data_json['match_id']
-                record.team_id = data_json['team_id']
-                record.seconds = data_json['seconds']
-                record.scorer = data_json['scorer']
+                    self.db_session.add_model(record)
+                    processed += 1
+                    
+                    # Коммитим пакетами с retry
+                    if processed % batch_size == 0:
+                        for retry in range(3):
+                            try:
+                                self.db_session.commit()
+                                logger.debug(f'Сохранено {processed} голов')
+                                # Небольшая задержка между коммитами для снижения конкуренции
+                                time.sleep(0.01)
+                                break
+                            except OperationalError as e:
+                                if '1205' in str(e) and retry < 2:
+                                    wait = (retry + 1) * 0.3
+                                    logger.warning(f'Блокировка при сохранении голов, retry {retry + 1}/3 через {wait}s')
+                                    self.db_session.rollback()
+                                    time.sleep(wait)
+                                else:
+                                    raise
 
-                self.db_session.add_model(record)
-                self.db_session.commit()
-
-            logger.debug(MEASSGE_LOG['saving_db_goal'])
-
-    except Exception as e:
-        logger.critical(
-            f'Ошибка при сохранении данных в GOAL: {e}'
-        )
+                except Exception as e:
+                    logger.critical(
+                        f'Ошибка при сохранении гола для матча {data_json.get("match_id", "unknown")}: {e}'
+                    )
+                    # Откатываем текущую транзакцию при ошибке
+                    self.db_session.rollback()
+        
+        # Финальный коммит для оставшихся записей
+        if processed % batch_size != 0:
+            for retry in range(3):
+                try:
+                    self.db_session.commit()
+                    logger.debug(f'Финальное сохранение: всего {processed} голов')
+                    break
+                except OperationalError as e:
+                    if '1205' in str(e) and retry < 2:
+                        wait = (retry + 1) * 0.3
+                        logger.warning(f'Блокировка при финальном сохранении голов, retry {retry + 1}/3 через {wait}s')
+                        self.db_session.rollback()
+                        time.sleep(wait)
+                    else:
+                        raise
 
 
 def save_period(self, data_save):
-    try:
+    batch_size = 50  # Уменьшили для снижения конкуренции
+    processed = 0
+    
+    # Отключаем autoflush для избежания блокировок
+    with self.db_session._session.no_autoflush:
         for data in data_save:
             for data_json in data:
-                if 'match_id' not in data_json.keys():
-                    continue
+                try:
+                    if 'match_id' not in data_json.keys():
+                        continue
 
-                period_record = (
-                    get_period_id(
-                        self.db_session,
-                        data_json['match_id'],
-                        data_json['period']
+                    # Проверяем существование в режиме no_autoflush
+                    period_record = (
+                        self.db_session.query(Period)
+                        .filter(
+                            Period.match_id == data_json['match_id'],
+                            Period.period == data_json['period']
+                        )
+                        .first()
                     )
-                )
-                if period_record is None:
-                    period_record = Period()
+                    
+                    if period_record is None:
+                        period_record = Period()
+                        period_record.match_id = data_json['match_id']
+                        period_record.period = data_json['period']
 
-                period_record.match_id = data_json['match_id']
-                period_record.period = data_json['period']
-                period_record.numOfHeadsHome = data_json['home']
-                period_record.numOfHeadsAway = data_json['away']
+                    period_record.numOfHeadsHome = data_json['home']
+                    period_record.numOfHeadsAway = data_json['away']
 
-                self.db_session.add_model(period_record)
-                self.db_session.commit()
+                    self.db_session.add_model(period_record)
+                    processed += 1
+                    
+                    # Коммитим пакетами с retry
+                    if processed % batch_size == 0:
+                        for retry in range(3):
+                            try:
+                                self.db_session.commit()
+                                logger.debug(f'Сохранено {processed} периодов')
+                                time.sleep(0.01)
+                                break
+                            except OperationalError as e:
+                                if '1205' in str(e) and retry < 2:
+                                    wait = (retry + 1) * 0.3
+                                    logger.warning(f'Блокировка при сохранении периодов, retry {retry + 1}/3 через {wait}s')
+                                    self.db_session.rollback()
+                                    time.sleep(wait)
+                                else:
+                                    raise
 
-            logger.debug(MEASSGE_LOG['saving_db_period'])
-
-    except Exception as e:
-        logger.critical(
-            f'Ошибка при сохранении данных в PERIOD'
-            f' {data_json['match_id']}: {e}'
-        )
+                except Exception as e:
+                    logger.critical(
+                        f'Ошибка при сохранении периода для матча '
+                        f'{data_json.get("match_id", "unknown")}, '
+                        f'период {data_json.get("period", "unknown")}: {e}'
+                    )
+                    # Откатываем текущую транзакцию при ошибке
+                    self.db_session.rollback()
+        
+        # Финальный коммит для оставшихся записей
+        if processed % batch_size != 0:
+            for retry in range(3):
+                try:
+                    self.db_session.commit()
+                    logger.debug(f'Финальное сохранение: всего {processed} периодов')
+                    break
+                except OperationalError as e:
+                    if '1205' in str(e) and retry < 2:
+                        wait = (retry + 1) * 0.3
+                        logger.warning(f'Блокировка при финальном сохранении периодов, retry {retry + 1}/3 через {wait}s')
+                        self.db_session.rollback()
+                        time.sleep(wait)
+                    else:
+                        raise
 
 
 def save_coef(data_save):

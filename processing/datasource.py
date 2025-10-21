@@ -62,9 +62,8 @@ class DatabaseSource(DataSource):
 
         # Извлечение уникальных tournament_id
         df_tournament = self.df['tournament_id'].drop_duplicates().sort_values()
-
-        #self.tournaments_id = df_tournament.tolist()
-        self.tournaments_id = [17, 18, 24, 25, 173]
+        self.tournaments_id = df_tournament.tolist()
+        #self.tournaments_id = [17, 18, 24, 25, 173]
 
         logger.info(f'Найдено {len(self.tournaments_id)} турниров для обработки')
 

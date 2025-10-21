@@ -153,6 +153,9 @@ def is_forecast_correct(forecast_data: dict, match: pd.Series) -> bool:
     """
     from core.prediction_validator import is_prediction_correct_from_target
     from db.queries.target import get_target_by_match_id
+    import logging
+    
+    logger = logging.getLogger(__name__)
     
     forecast_type = forecast_data.get('forecast_type', '')
     outcome = forecast_data.get('outcome', '')
@@ -161,23 +164,44 @@ def is_forecast_correct(forecast_data: dict, match: pd.Series) -> bool:
     if not forecast_type or not outcome or not match_id:
         return False
     
-    # Маппинг forecast_type -> feature
+    # Маппинг forecast_type -> feature и model_type
     forecast_type_to_feature = {
-        'win_draw_loss': 1,
-        'oz': 2,
-        'goal_home': 3,
-        'goal_away': 4,
-        'total': 5,
-        'total_home': 6,
-        'total_away': 7,
-        'total_amount': 8,
-        'total_home_amount': 9,
-        'total_away_amount': 10
+        'win_draw_loss': (1, 'classification'),
+        'oz': (2, 'classification'),
+        'goal_home': (3, 'classification'),
+        'goal_away': (4, 'classification'),
+        'total': (5, 'classification'),
+        'total_home': (6, 'classification'),
+        'total_away': (7, 'classification'),
+        'total_amount': (8, 'regression'),
+        'total_home_amount': (9, 'regression'),
+        'total_away_amount': (10, 'regression')
     }
     
-    feature = forecast_type_to_feature.get(forecast_type)
-    if not feature:
+    feature_data = forecast_type_to_feature.get(forecast_type)
+    if not feature_data:
         return False
+    
+    feature, model_type = feature_data
+    
+    # Для регрессионных моделей преобразуем числовое значение в категорию
+    if model_type == 'regression' and outcome:
+        try:
+            forecast_value = float(outcome)
+            sport_name = match.get('sportName', 'Soccer')
+            
+            if forecast_type == 'total_amount':
+                threshold = 2.5 if sport_name == 'Soccer' else 4.5
+                outcome = 'тб' if forecast_value > threshold else 'тм'
+            elif forecast_type == 'total_home_amount':
+                threshold = 1.5 if sport_name == 'Soccer' else 2.5
+                outcome = 'ит1б' if forecast_value > threshold else 'ит1м'
+            elif forecast_type == 'total_away_amount':
+                threshold = 1.5 if sport_name == 'Soccer' else 2.5
+                outcome = 'ит2б' if forecast_value > threshold else 'ит2м'
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Не удалось преобразовать регрессионное значение {outcome}: {e}")
+            return False
     
     # Получаем target и проверяем правильность
     target = get_target_by_match_id(match_id)

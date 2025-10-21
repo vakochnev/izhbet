@@ -1,6 +1,6 @@
-from typing import Dict, Any
+from typing import Dict, Any, List
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from sqlalchemy import desc, asc, func
 
 from db.queries.championship import get_championship_season
@@ -290,3 +290,69 @@ def get_championship_info(session: Any, match_id: int) -> Dict[str, Any]:
         logger.error(f"Ошибка получения информации о чемпионате: {e}")
 
     return {}
+
+
+def get_matches_for_date(target_date: date) -> List[Dict]:
+    """
+    Получает список матчей на указанную дату из таблицы matches.
+    
+    Args:
+        target_date: Дата для выборки матчей
+        
+    Returns:
+        List[Dict]: Список матчей с полной информацией
+    """
+    from db.models import Team, ChampionShip, Sport
+    
+    with Session_pool() as session:
+        TeamHome = Team.__table__.alias('team_home')
+        TeamAway = Team.__table__.alias('team_away')
+        
+        query = session.query(
+            Match.id,
+            Match.gameData,
+            Match.teamHome_id,
+            Match.teamAway_id,
+            Match.numOfHeadsHome,
+            Match.numOfHeadsAway,
+            Match.typeOutcome,
+            Match.tournament_id,
+            TeamHome.c.teamName.label('team_home_name'),
+            TeamAway.c.teamName.label('team_away_name'),
+            ChampionShip.championshipName,
+            Sport.sportName
+        ).outerjoin(
+            TeamHome, Match.teamHome_id == TeamHome.c.id
+        ).outerjoin(
+            TeamAway, Match.teamAway_id == TeamAway.c.id
+        ).outerjoin(
+            ChampionShip, Match.tournament_id == ChampionShip.id
+        ).outerjoin(
+            Sport, ChampionShip.sport_id == Sport.id
+        ).filter(
+            func.date(Match.gameData) == target_date
+        ).order_by(
+            Match.gameData
+        )
+        
+        result = query.all()
+        matches = [row._asdict() for row in result]
+        return matches
+
+
+def get_statistics_for_match(match_id: int) -> List[Dict]:
+    """
+    Получает statistics для конкретного матча.
+    
+    Args:
+        match_id: ID матча
+        
+    Returns:
+        List[Dict]: Список statistics
+    """
+    from db.models.statistics import Statistic
+    
+    with Session_pool() as session:
+        query = session.query(Statistic).filter(Statistic.match_id == match_id)
+        result = query.all()
+        return [row.to_dict() if hasattr(row, 'to_dict') else row.__dict__ for row in result]

@@ -31,9 +31,12 @@ def get_db_session():
         max_overflow=10,
         pool_pre_ping=True,
         pool_recycle=3600,
-        isolation_level='AUTOCOMMIT',
+        # Убрали AUTOCOMMIT для управления транзакциями вручную
+        # isolation_level='AUTOCOMMIT',
     )
-    session = sessionmaker(bind=engine)()
+    # Отключаем autoflush для избежания блокировок при запросах
+    # session = sessionmaker(bind=engine)()
+    session = sessionmaker(bind=engine, autoflush=False, autocommit=False)()
     return DBSession(session)
 
 

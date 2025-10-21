@@ -15,19 +15,23 @@ fi
 
 # Получение данных с сайта stat-api.baltbet.ru и сохранение в БД
 # можно передать параметры: INIT_DB, UPDATE_DB - по умолчанию UPDATE_DB
-python3.12 getting.py UPDATE_DB -Wignore
-if [ $? -ne 0 ]; then
-    echo "Программа: getting.py - завершилась с ошибкой" >&2
-    exit $?
-fi
+#python3.12 getting.py UPDATE_DB -Wignore
+#if [ $? -ne 0 ]; then
+#    echo "Программа: getting.py - завершилась с ошибкой" >&2
+#    exit $?
+#fi
+
+#exit 0
 
 # Расчет турнирной таблицы и эмбедингов для нейронной сети
 # можно передать параметры ALL_TIME, LATELY - по умолчанию LATELY
-python3.12 calculation.py LATELY -Wignore
-if [ $? -ne 0 ]; then
-    echo "Программа: calculation.py - завершилась с ошибкой" >&2
-    exit $?
-fi
+#python3.12 calculation.py LATELY -Wignore
+#if [ $? -ne 0 ]; then
+#    echo "Программа: calculation.py - завершилась с ошибкой" >&2
+#    exit $?
+#fi
+
+#exit 0
 
 # Построение модели и предсказания результатов и сохранение их в таблицу
 # можно передать параметры CREATE_MODEL, CREATE_PROGNOZ - по умолчанию CREATE_PROGNOZ
@@ -37,17 +41,26 @@ if [ $? -ne 0 ]; then
     exit $?
 fi
 
-# Публикация наиболее вероятных событий в соц.сети
+#exit 0
+
+# Построение воронки и создание конформных прогнозово
 python3.12 forecast.py all_time
 if [ $? -ne 0 ]; then
     echo "Программа: publisher.py - завершилась с ошибкой" >&2
     exit $?
 fi
 
-exit 0
+#exit 0
 
 # Публикация наиболее вероятных событий в соц.сети
-python3.12 publisher.py TODAY -Wignore
+# TODAY - Рекомендуется для ежедневной публикации: Прогнозы на сегодня, Итоги за вчера
+# ALL_TIME - Публикация за весь период: Прогнозы и итоги за все время
+# QUALITY - Качественные прогнозы на сегодня: Только лучшие прогнозы с высокой уверенностью
+# QUALITY_OUTCOMES - Качественные итоги за вчера: Итоги качественных прогнозов
+# LATELY - Последние прогнозы
+# FUNNEL - Анализ воронки прогнозов за 90 дней
+# YEAR (опциональный): Год турнира (например, 2025) Если не указан, используется текущий сезон
+python3.12 publisher.py TODAY #YEAR 2025
 if [ $? -ne 0 ]; then
     echo "Программа: publisher.py - завершилась с ошибкой" >&2
     exit $?
